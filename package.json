@@ -9,7 +9,8 @@
     "discord.js": "^14.16.3",
     "libsodium-wrappers": "^0.7.15",
     "opusscript": "^0.0.8",
-    "prism-media": "^1.3.5"
+    "prism-media": "^1.3.5",
+    "ws": "^8.18.0"
   },
   "clawdbot": {
     "extensions": [
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@sinclair/typebox": "^0.34.48",
     "@types/node": "^25.0.10",
+    "@types/ws": "^8.18.0",
     "typescript": "^5.9.3"
   }
 }

@@ -2,17 +2,27 @@
  * Discord Voice Plugin Configuration
  */
 
+// Placeholder for core TTS config compatibility
+export interface VoiceCallTtsConfig {
+  enabled?: boolean;
+  voice?: string;
+  [key: string]: unknown;
+}
+
 export interface DiscordVoiceConfig {
   enabled: boolean;
   sttProvider: "whisper" | "deepgram";
+  streamingSTT: boolean;  // Use streaming STT (Deepgram only) for lower latency
   ttsProvider: "openai" | "elevenlabs";
   ttsVoice: string;
   vadSensitivity: "low" | "medium" | "high";
+  bargeIn: boolean;       // Stop speaking when user starts talking
   allowedUsers: string[];
   silenceThresholdMs: number;
   minAudioMs: number;
   maxRecordingMs: number;
   autoJoinChannel?: string; // Channel ID to auto-join on startup
+  heartbeatIntervalMs?: number;  // Connection health check interval
   openai?: {
     apiKey?: string;
     whisperModel?: string;
@@ -32,13 +42,16 @@ export interface DiscordVoiceConfig {
 export const DEFAULT_CONFIG: DiscordVoiceConfig = {
   enabled: true,
   sttProvider: "whisper",
+  streamingSTT: true,       // Enable streaming by default when using Deepgram
   ttsProvider: "openai",
   ttsVoice: "nova",
   vadSensitivity: "medium",
+  bargeIn: true,            // Enable barge-in by default
   allowedUsers: [],
   silenceThresholdMs: 1500,
   minAudioMs: 500,
   maxRecordingMs: 30000,
+  heartbeatIntervalMs: 30000,
 };
 
 export function parseConfig(raw: unknown): DiscordVoiceConfig {
@@ -51,11 +64,13 @@ export function parseConfig(raw: unknown): DiscordVoiceConfig {
   return {
     enabled: typeof obj.enabled === "boolean" ? obj.enabled : DEFAULT_CONFIG.enabled,
     sttProvider: obj.sttProvider === "deepgram" ? "deepgram" : "whisper",
+    streamingSTT: typeof obj.streamingSTT === "boolean" ? obj.streamingSTT : DEFAULT_CONFIG.streamingSTT,
     ttsProvider: obj.ttsProvider === "elevenlabs" ? "elevenlabs" : "openai",
     ttsVoice: typeof obj.ttsVoice === "string" ? obj.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     vadSensitivity: ["low", "medium", "high"].includes(obj.vadSensitivity as string)
       ? (obj.vadSensitivity as "low" | "medium" | "high")
       : DEFAULT_CONFIG.vadSensitivity,
+    bargeIn: typeof obj.bargeIn === "boolean" ? obj.bargeIn : DEFAULT_CONFIG.bargeIn,
     allowedUsers: Array.isArray(obj.allowedUsers)
       ? obj.allowedUsers.filter((u): u is string => typeof u === "string")
       : [],
@@ -75,6 +90,10 @@ export function parseConfig(raw: unknown): DiscordVoiceConfig {
       typeof obj.autoJoinChannel === "string" && obj.autoJoinChannel.trim()
         ? obj.autoJoinChannel.trim()
         : undefined,
+    heartbeatIntervalMs:
+      typeof obj.heartbeatIntervalMs === "number"
+        ? obj.heartbeatIntervalMs
+        : DEFAULT_CONFIG.heartbeatIntervalMs,
     openai: obj.openai && typeof obj.openai === "object"
       ? {
           apiKey: (obj.openai as Record<string, unknown>).apiKey as string | undefined,

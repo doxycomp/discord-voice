@@ -1,6 +1,11 @@
 /**
  * Discord Voice Connection Manager
  * Handles joining, leaving, listening, and speaking in voice channels
+ * 
+ * Features:
+ * - Barge-in: Stops speaking when user starts talking
+ * - Auto-reconnect heartbeat: Keeps connection alive
+ * - Streaming STT: Real-time transcription with Deepgram
  */
 
 import {
@@ -31,6 +36,7 @@ import type { DiscordVoiceConfig } from "./config.js";
 import { getVadThreshold } from "./config.js";
 import { createSTTProvider, type STTProvider } from "./stt.js";
 import { createTTSProvider, type TTSProvider } from "./tts.js";
+import { StreamingSTTManager, createStreamingSTTProvider } from "./streaming-stt.js";
 
 interface Logger {
   info(msg: string): void;
@@ -44,24 +50,41 @@ interface UserAudioState {
   lastActivityMs: number;
   isRecording: boolean;
   silenceTimer?: ReturnType<typeof setTimeout>;
+  opusStream?: AudioReceiveStream;
+  decoder?: prism.opus.Decoder;
 }
 
 export interface VoiceSession {
   guildId: string;
   channelId: string;
+  channelName?: string;
   connection: VoiceConnection;
   player: AudioPlayer;
   userAudioStates: Map<string, UserAudioState>;
   speaking: boolean;
+  thinkingPlayer?: AudioPlayer;  // Separate player for thinking sound
+  heartbeatInterval?: ReturnType<typeof setInterval>;
+  lastHeartbeat?: number;
+  reconnecting?: boolean;
 }
 
 export class VoiceConnectionManager {
   private sessions: Map<string, VoiceSession> = new Map();
   private config: DiscordVoiceConfig;
   private sttProvider: STTProvider | null = null;
+  private streamingSTT: StreamingSTTManager | null = null;
   private ttsProvider: TTSProvider | null = null;
   private logger: Logger;
   private onTranscript: (userId: string, guildId: string, channelId: string, text: string) => Promise<string>;
+
+  // Heartbeat configuration (can be overridden via config.heartbeatIntervalMs)
+  private readonly DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;  // 30 seconds
+  private readonly HEARTBEAT_TIMEOUT_MS = 60_000;   // 60 seconds before reconnect
+  private readonly MAX_RECONNECT_ATTEMPTS = 3;
+  
+  private get HEARTBEAT_INTERVAL_MS(): number {
+    return this.config.heartbeatIntervalMs ?? this.DEFAULT_HEARTBEAT_INTERVAL_MS;
+  }
 
   constructor(
     config: DiscordVoiceConfig,
@@ -82,6 +105,10 @@ export class VoiceConnectionManager {
     }
     if (!this.ttsProvider) {
       this.ttsProvider = createTTSProvider(this.config);
+    }
+    // Initialize streaming STT if using Deepgram with streaming enabled
+    if (!this.streamingSTT && this.config.sttProvider === "deepgram" && this.config.streamingSTT) {
+      this.streamingSTT = createStreamingSTTProvider(this.config);
     }
   }
 
@@ -114,10 +141,12 @@ export class VoiceConnectionManager {
     const session: VoiceSession = {
       guildId: channel.guildId,
       channelId: channel.id,
+      channelName: channel.name,
       connection,
       player,
       userAudioStates: new Map(),
       speaking: false,
+      lastHeartbeat: Date.now(),
     };
 
     this.sessions.set(channel.guildId, session);
@@ -135,23 +164,134 @@ export class VoiceConnectionManager {
     // Start listening to users
     this.startListening(session);
 
-    // Handle disconnection
+    // Start heartbeat for connection health monitoring
+    this.startHeartbeat(session);
+
+    // Handle connection state changes
+    this.setupConnectionHandlers(session, channel);
+
+    return session;
+  }
+
+  /**
+   * Setup connection event handlers for auto-reconnect
+   */
+  private setupConnectionHandlers(session: VoiceSession, channel: VoiceBasedChannel): void {
+    const connection = session.connection;
+
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      if (session.reconnecting) return;
+      
+      this.logger.warn(`[discord-voice] Disconnected from voice channel in ${channel.guild.name}`);
+      
       try {
+        // Try to reconnect within 5 seconds
         await Promise.race([
           entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
           entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
         ]);
-        // Connection is recovering
+        this.logger.info(`[discord-voice] Reconnecting to voice channel...`);
       } catch {
-        // Connection is not recovering, clean up
-        connection.destroy();
-        this.sessions.delete(channel.guildId);
-        this.logger.info(`[discord-voice] Disconnected from voice channel in ${channel.guild.name}`);
+        // Connection is not recovering, attempt manual reconnect
+        await this.attemptReconnect(session, channel);
       }
     });
 
-    return session;
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      session.lastHeartbeat = Date.now();
+      session.reconnecting = false;
+      this.logger.info(`[discord-voice] Connection ready for ${channel.name}`);
+    });
+
+    connection.on("error", (error) => {
+      this.logger.error(`[discord-voice] Connection error: ${error.message}`);
+    });
+  }
+
+  /**
+   * Attempt to reconnect to voice channel
+   */
+  private async attemptReconnect(session: VoiceSession, channel: VoiceBasedChannel, attempt = 1): Promise<void> {
+    if (attempt > this.MAX_RECONNECT_ATTEMPTS) {
+      this.logger.error(`[discord-voice] Max reconnection attempts reached, giving up`);
+      await this.leave(session.guildId);
+      return;
+    }
+
+    session.reconnecting = true;
+    this.logger.info(`[discord-voice] Reconnection attempt ${attempt}/${this.MAX_RECONNECT_ATTEMPTS}`);
+
+    try {
+      // Destroy old connection
+      session.connection.destroy();
+
+      // Wait before reconnecting (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+
+      // Create new connection
+      const newConnection = joinVoiceChannel({
+        channelId: channel.id,
+        guildId: channel.guildId,
+        adapterCreator: channel.guild.voiceAdapterCreator,
+        selfDeaf: false,
+        selfMute: false,
+      });
+
+      const newPlayer = createAudioPlayer();
+      newConnection.subscribe(newPlayer);
+
+      // Update session
+      session.connection = newConnection;
+      session.player = newPlayer;
+
+      // Wait for ready
+      await entersState(newConnection, VoiceConnectionStatus.Ready, 20_000);
+      
+      session.reconnecting = false;
+      session.lastHeartbeat = Date.now();
+      
+      // Restart listening
+      this.startListening(session);
+      
+      // Setup handlers for new connection
+      this.setupConnectionHandlers(session, channel);
+      
+      this.logger.info(`[discord-voice] Reconnected successfully`);
+    } catch (error) {
+      this.logger.error(`[discord-voice] Reconnection failed: ${error instanceof Error ? error.message : String(error)}`);
+      await this.attemptReconnect(session, channel, attempt + 1);
+    }
+  }
+
+  /**
+   * Start heartbeat monitoring for session
+   */
+  private startHeartbeat(session: VoiceSession): void {
+    // Clear any existing heartbeat
+    if (session.heartbeatInterval) {
+      clearInterval(session.heartbeatInterval);
+    }
+
+    session.heartbeatInterval = setInterval(() => {
+      const now = Date.now();
+      const connectionState = session.connection.state.status;
+      
+      // Update heartbeat if connection is healthy
+      if (connectionState === VoiceConnectionStatus.Ready) {
+        session.lastHeartbeat = now;
+        this.logger.debug?.(`[discord-voice] Heartbeat OK for guild ${session.guildId}`);
+      } else if (session.lastHeartbeat && (now - session.lastHeartbeat > this.HEARTBEAT_TIMEOUT_MS)) {
+        // Connection has been unhealthy for too long
+        this.logger.warn(`[discord-voice] Heartbeat timeout, connection state: ${connectionState}`);
+        
+        // Don't attempt reconnect if already doing so
+        if (!session.reconnecting) {
+          // Trigger reconnection by destroying and rejoining
+          this.logger.info(`[discord-voice] Triggering reconnection due to heartbeat timeout`);
+          session.connection.destroy();
+        }
+      }
+    }, this.HEARTBEAT_INTERVAL_MS);
   }
 
   /**
@@ -163,10 +303,28 @@ export class VoiceConnectionManager {
       return false;
     }
 
-    // Clear all timers
+    // Clear heartbeat
+    if (session.heartbeatInterval) {
+      clearInterval(session.heartbeatInterval);
+    }
+
+    // Clear all user timers and streams
     for (const state of session.userAudioStates.values()) {
       if (state.silenceTimer) {
         clearTimeout(state.silenceTimer);
+      }
+      if (state.opusStream) {
+        state.opusStream.destroy();
+      }
+      if (state.decoder) {
+        state.decoder.destroy();
+      }
+    }
+
+    // Close streaming STT sessions
+    if (this.streamingSTT) {
+      for (const userId of session.userAudioStates.keys()) {
+        this.streamingSTT.closeSession(userId);
       }
     }
 
@@ -187,13 +345,19 @@ export class VoiceConnectionManager {
         return;
       }
 
-      // Don't listen while we're speaking
-      if (session.speaking) {
+      this.logger.debug?.(`[discord-voice] User ${userId} started speaking`);
+      
+      // ═══════════════════════════════════════════════════════════════
+      // BARGE-IN: If we're speaking and user starts talking, stop immediately
+      // ═══════════════════════════════════════════════════════════════
+      if (session.speaking && this.config.bargeIn) {
+        this.logger.info(`[discord-voice] Barge-in detected! Stopping speech.`);
+        this.stopSpeaking(session);
+      } else if (session.speaking) {
+        // Barge-in disabled, ignore user speech while we're talking
         return;
       }
 
-      this.logger.debug?.(`[discord-voice] User ${userId} started speaking`);
-      
       let state = session.userAudioStates.get(userId);
       if (!state) {
         state = {
@@ -237,11 +401,41 @@ export class VoiceConnectionManager {
       state.silenceTimer = setTimeout(async () => {
         if (state.isRecording && state.chunks.length > 0) {
           state.isRecording = false;
+          
+          // Clean up streams
+          if (state.opusStream) {
+            state.opusStream.destroy();
+            state.opusStream = undefined;
+          }
+          if (state.decoder) {
+            state.decoder.destroy();
+            state.decoder = undefined;
+          }
+          
           await this.processRecording(session, userId, state.chunks);
           state.chunks = [];
         }
       }, this.config.silenceThresholdMs);
     });
+  }
+
+  /**
+   * Stop any current speech output (for barge-in)
+   */
+  private stopSpeaking(session: VoiceSession): void {
+    // Stop main player
+    if (session.player.state.status !== AudioPlayerStatus.Idle) {
+      session.player.stop(true);
+    }
+    
+    // Stop thinking player if active
+    if (session.thinkingPlayer && session.thinkingPlayer.state.status !== AudioPlayerStatus.Idle) {
+      session.thinkingPlayer.stop(true);
+      session.thinkingPlayer.removeAllListeners();
+      session.thinkingPlayer = undefined;
+    }
+
+    session.speaking = false;
   }
 
   /**
@@ -258,6 +452,8 @@ export class VoiceConnectionManager {
       },
     });
 
+    state.opusStream = opusStream;
+
     // Decode Opus to PCM
     const decoder = new prism.opus.Decoder({
       rate: 48000,
@@ -265,24 +461,61 @@ export class VoiceConnectionManager {
       frameSize: 960,
     });
 
+    state.decoder = decoder;
     opusStream.pipe(decoder);
 
-    decoder.on("data", (chunk: Buffer) => {
-      if (state.isRecording) {
-        state.chunks.push(chunk);
-        state.lastActivityMs = Date.now();
-
-        // Check max recording length
-        const totalSize = state.chunks.reduce((sum, c) => sum + c.length, 0);
-        const durationMs = (totalSize / 2) / 48; // 16-bit samples at 48kHz
-        if (durationMs >= this.config.maxRecordingMs) {
-          this.logger.debug?.(`[discord-voice] Max recording length reached for user ${userId}`);
-          state.isRecording = false;
-          this.processRecording(session, userId, state.chunks);
-          state.chunks = [];
+    // If streaming STT is available and enabled, use it
+    const useStreaming = this.streamingSTT && this.config.sttProvider === "deepgram" && this.config.streamingSTT;
+    
+    if (useStreaming && this.streamingSTT) {
+      // Create streaming session for this user
+      const streamingSession = this.streamingSTT.getOrCreateSession(userId, (text, isFinal) => {
+        if (isFinal) {
+          this.logger.debug?.(`[discord-voice] Streaming transcript (final): "${text}"`);
+        } else {
+          this.logger.debug?.(`[discord-voice] Streaming transcript (interim): "${text}"`);
         }
-      }
-    });
+      });
+
+      decoder.on("data", (chunk: Buffer) => {
+        if (state.isRecording) {
+          // Send to streaming STT
+          this.streamingSTT?.sendAudio(userId, chunk);
+          
+          // Also buffer for fallback/debugging
+          state.chunks.push(chunk);
+          state.lastActivityMs = Date.now();
+
+          // Check max recording length
+          const totalSize = state.chunks.reduce((sum, c) => sum + c.length, 0);
+          const durationMs = (totalSize / 2) / 48; // 16-bit samples at 48kHz
+          if (durationMs >= this.config.maxRecordingMs) {
+            this.logger.debug?.(`[discord-voice] Max recording length reached for user ${userId}`);
+            state.isRecording = false;
+            this.processRecording(session, userId, state.chunks);
+            state.chunks = [];
+          }
+        }
+      });
+    } else {
+      // Batch mode - just buffer audio
+      decoder.on("data", (chunk: Buffer) => {
+        if (state.isRecording) {
+          state.chunks.push(chunk);
+          state.lastActivityMs = Date.now();
+
+          // Check max recording length
+          const totalSize = state.chunks.reduce((sum, c) => sum + c.length, 0);
+          const durationMs = (totalSize / 2) / 48; // 16-bit samples at 48kHz
+          if (durationMs >= this.config.maxRecordingMs) {
+            this.logger.debug?.(`[discord-voice] Max recording length reached for user ${userId}`);
+            state.isRecording = false;
+            this.processRecording(session, userId, state.chunks);
+            state.chunks = [];
+          }
+        }
+      });
+    }
 
     decoder.on("end", () => {
       this.logger.debug?.(`[discord-voice] Decoder stream ended for user ${userId}`);
@@ -313,21 +546,37 @@ export class VoiceConnectionManager {
     this.logger.info(`[discord-voice] Processing ${Math.round(durationMs)}ms of audio from user ${userId}`);
 
     try {
-      // Transcribe
-      const sttResult = await this.sttProvider.transcribe(audioBuffer, 48000);
+      let transcribedText: string;
+
+      // Check if we have streaming transcript available
+      if (this.streamingSTT && this.config.sttProvider === "deepgram" && this.config.streamingSTT) {
+        // Get accumulated transcript from streaming session
+        transcribedText = this.streamingSTT.finalizeSession(userId);
+        
+        // Fallback to batch if streaming didn't capture anything
+        if (!transcribedText || transcribedText.trim().length === 0) {
+          this.logger.debug?.(`[discord-voice] Streaming empty, falling back to batch STT`);
+          const sttResult = await this.sttProvider.transcribe(audioBuffer, 48000);
+          transcribedText = sttResult.text;
+        }
+      } else {
+        // Batch transcription
+        const sttResult = await this.sttProvider.transcribe(audioBuffer, 48000);
+        transcribedText = sttResult.text;
+      }
       
-      if (!sttResult.text || sttResult.text.trim().length === 0) {
+      if (!transcribedText || transcribedText.trim().length === 0) {
         this.logger.debug?.(`[discord-voice] Empty transcription for user ${userId}`);
         return;
       }
 
-      this.logger.info(`[discord-voice] Transcribed: "${sttResult.text}"`);
+      this.logger.info(`[discord-voice] Transcribed: "${transcribedText}"`);
 
       // Play looping thinking sound while processing
       const stopThinking = await this.startThinkingLoop(session);
 
       // Get response from agent
-      const response = await this.onTranscript(userId, session.guildId, session.channelId, sttResult.text);
+      const response = await this.onTranscript(userId, session.guildId, session.channelId, transcribedText);
       
       // Stop thinking sound
       stopThinking();
@@ -382,15 +631,23 @@ export class VoiceConnectionManager {
 
       // Wait for playback to finish
       await new Promise<void>((resolve) => {
-        session.player.once(AudioPlayerStatus.Idle, () => {
+        const onIdle = () => {
           session.speaking = false;
+          session.player.off(AudioPlayerStatus.Idle, onIdle);
+          session.player.off("error", onError);
           resolve();
-        });
-        session.player.once("error", (error: Error) => {
+        };
+        
+        const onError = (error: Error) => {
           this.logger.error(`[discord-voice] Playback error: ${error.message}`);
           session.speaking = false;
+          session.player.off(AudioPlayerStatus.Idle, onIdle);
+          session.player.off("error", onError);
           resolve();
-        });
+        };
+
+        session.player.on(AudioPlayerStatus.Idle, onIdle);
+        session.player.on("error", onError);
       });
     } catch (error) {
       session.speaking = false;
@@ -403,7 +660,6 @@ export class VoiceConnectionManager {
    */
   private async startThinkingLoop(session: VoiceSession): Promise<() => void> {
     let stopped = false;
-    let thinkingPlayer: AudioPlayer | null = null;
     
     try {
       const fs = await import("node:fs");
@@ -418,7 +674,10 @@ export class VoiceConnectionManager {
       }
 
       const audioData = fs.readFileSync(thinkingPath);
-      thinkingPlayer = createAudioPlayer();
+      
+      // Create separate player for thinking sound
+      const thinkingPlayer = createAudioPlayer();
+      session.thinkingPlayer = thinkingPlayer;
       session.connection.subscribe(thinkingPlayer);
 
       const playLoop = () => {
@@ -439,16 +698,14 @@ export class VoiceConnectionManager {
           thinkingPlayer.stop(true);
           thinkingPlayer.removeAllListeners();
         }
+        session.thinkingPlayer = undefined;
         // Re-subscribe main player
         session.connection.subscribe(session.player);
       };
     } catch (error) {
       this.logger.debug?.(`[discord-voice] Error starting thinking loop: ${error instanceof Error ? error.message : String(error)}`);
       return () => {
-        if (thinkingPlayer) {
-          thinkingPlayer.stop(true);
-          thinkingPlayer.removeAllListeners();
-        }
+        session.thinkingPlayer = undefined;
         session.connection.subscribe(session.player);
       };
     }
@@ -486,65 +743,6 @@ export class VoiceConnectionManager {
   }
 
   /**
-   * Play thinking/processing sound while waiting for agent response (looping version - currently unused)
-   */
-  private async playThinkingSound(guildId: string): Promise<AudioPlayer | null> {
-    const session = this.sessions.get(guildId);
-    if (!session) {
-      return null;
-    }
-
-    try {
-      const fs = await import("node:fs");
-      const path = await import("node:path");
-      const { fileURLToPath } = await import("node:url");
-      
-      // Get the assets directory relative to this module
-      const __dirname = path.dirname(fileURLToPath(import.meta.url));
-      const thinkingPath = path.join(__dirname, "..", "assets", "thinking.mp3");
-      
-      if (!fs.existsSync(thinkingPath)) {
-        this.logger.debug?.(`[discord-voice] Thinking sound not found at ${thinkingPath}`);
-        return null;
-      }
-
-      // Create a separate player for thinking sound so we can stop it independently
-      const thinkingPlayer = createAudioPlayer();
-      session.connection.subscribe(thinkingPlayer);
-      
-      const audioBuffer = fs.readFileSync(thinkingPath);
-      const resource = createAudioResource(Readable.from(audioBuffer), {
-        inlineVolume: true,
-      });
-      
-      // Set volume for thinking sound
-      resource.volume?.setVolume(0.6);
-      
-      thinkingPlayer.play(resource);
-      
-      // When thinking sound ends, loop it if player hasn't been stopped
-      thinkingPlayer.on(AudioPlayerStatus.Idle, () => {
-        if (thinkingPlayer.state.status !== "idle") return;
-        // Re-create resource for looping
-        try {
-          const loopResource = createAudioResource(Readable.from(fs.readFileSync(thinkingPath)), {
-            inlineVolume: true,
-          });
-          loopResource.volume?.setVolume(0.6);
-          thinkingPlayer.play(loopResource);
-        } catch {
-          // Player was stopped, ignore
-        }
-      });
-
-      return thinkingPlayer;
-    } catch (error) {
-      this.logger.debug?.(`[discord-voice] Error playing thinking sound: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
-  }
-
-  /**
    * Check if a user is allowed to use voice
    */
   private isUserAllowed(userId: string): boolean {
@@ -572,6 +770,11 @@ export class VoiceConnectionManager {
    * Destroy all connections
    */
   async destroy(): Promise<void> {
+    // Close streaming STT
+    if (this.streamingSTT) {
+      this.streamingSTT.closeAll();
+    }
+
     const guildIds = Array.from(this.sessions.keys());
     for (const guildId of guildIds) {
       await this.leave(guildId);
