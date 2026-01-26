@@ -555,7 +555,15 @@ export class VoiceConnectionManager {
       return;
     }
 
-    this.logger.info(`[discord-voice] Processing ${Math.round(durationMs)}ms of audio from user ${userId}`);
+    // Calculate RMS amplitude to filter out quiet sounds (keystrokes, background noise)
+    const rms = this.calculateRMS(audioBuffer);
+    const minRMS = 500; // Threshold for 16-bit audio (0-32767 range), ~1.5% of max
+    if (rms < minRMS) {
+      this.logger.debug?.(`[discord-voice] Skipping quiet audio (RMS ${Math.round(rms)} < ${minRMS}) for user ${userId}`);
+      return;
+    }
+
+    this.logger.info(`[discord-voice] Processing ${Math.round(durationMs)}ms of audio (RMS: ${Math.round(rms)}) from user ${userId}`);
 
     try {
       let transcribedText: string;
@@ -784,6 +792,24 @@ export class VoiceConnectionManager {
     } catch (error) {
       this.logger.debug?.(`[discord-voice] Error playing thinking sound: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * Calculate RMS (Root Mean Square) amplitude of audio buffer
+   * Used to filter out quiet sounds like keystrokes and background noise
+   */
+  private calculateRMS(audioBuffer: Buffer): number {
+    // Audio is 16-bit signed PCM
+    const samples = audioBuffer.length / 2;
+    if (samples === 0) return 0;
+
+    let sumSquares = 0;
+    for (let i = 0; i < audioBuffer.length; i += 2) {
+      const sample = audioBuffer.readInt16LE(i);
+      sumSquares += sample * sample;
+    }
+
+    return Math.sqrt(sumSquares / samples);
   }
 
   /**
