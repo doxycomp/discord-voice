@@ -52,6 +52,10 @@ export class DeepgramStreamingSTT extends EventEmitter implements StreamingSTTPr
   private interimResults: boolean;
   private endpointing: number;
   private utteranceEndMs: number;
+  
+  // Buffer for audio chunks received before connection is ready
+  private pendingAudioChunks: Buffer[] = [];
+  private maxPendingChunks = 500; // ~5 seconds of audio at 48kHz
 
   constructor(config: DiscordVoiceConfig, options?: {
     sampleRate?: number;
@@ -102,6 +106,16 @@ export class DeepgramStreamingSTT extends EventEmitter implements StreamingSTTPr
     this.ws.on("open", () => {
       this.ready = true;
       this.reconnectAttempts = 0;
+      
+      // Flush any pending audio chunks that were buffered during connection
+      if (this.pendingAudioChunks.length > 0) {
+        console.log(`[streaming-stt] Connection ready, flushing ${this.pendingAudioChunks.length} buffered audio chunks`);
+        for (const chunk of this.pendingAudioChunks) {
+          this.ws!.send(chunk);
+        }
+        this.pendingAudioChunks = [];
+      }
+      
       this.emit("ready");
       
       // Start keep-alive pings every 10 seconds
@@ -166,6 +180,13 @@ export class DeepgramStreamingSTT extends EventEmitter implements StreamingSTTPr
   sendAudio(chunk: Buffer): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(chunk);
+    } else if (!this.closed) {
+      // Buffer audio while connection is establishing
+      this.pendingAudioChunks.push(chunk);
+      // Prevent unlimited buffering
+      if (this.pendingAudioChunks.length > this.maxPendingChunks) {
+        this.pendingAudioChunks.shift(); // Drop oldest chunk
+      }
     }
   }
 
@@ -179,6 +200,7 @@ export class DeepgramStreamingSTT extends EventEmitter implements StreamingSTTPr
   close(): void {
     this.closed = true;
     this.clearKeepAlive();
+    this.pendingAudioChunks = [];
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -188,6 +210,38 @@ export class DeepgramStreamingSTT extends EventEmitter implements StreamingSTTPr
 
   isReady(): boolean {
     return this.ready && this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Wait for the connection to be ready (or fail)
+   * Returns true if ready, false if failed/closed
+   */
+  waitForReady(timeoutMs = 5000): Promise<boolean> {
+    if (this.isReady()) return Promise.resolve(true);
+    if (this.closed) return Promise.resolve(false);
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.off("ready", onReady);
+        this.off("close", onClose);
+        resolve(false);
+      }, timeoutMs);
+
+      const onReady = () => {
+        clearTimeout(timeout);
+        this.off("close", onClose);
+        resolve(true);
+      };
+
+      const onClose = () => {
+        clearTimeout(timeout);
+        this.off("ready", onReady);
+        resolve(false);
+      };
+
+      this.once("ready", onReady);
+      this.once("close", onClose);
+    });
   }
 }
 
@@ -283,10 +337,12 @@ export class StreamingSTTManager {
 
   /**
    * Send audio to user's session
+   * Audio is buffered if connection is still establishing
    */
   sendAudio(userId: string, chunk: Buffer): void {
     const session = this.sessions.get(userId);
-    if (session?.isReady()) {
+    if (session) {
+      // sendAudio now handles buffering internally if not ready
       session.sendAudio(chunk);
     }
   }
