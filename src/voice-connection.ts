@@ -81,6 +81,7 @@ export interface VoiceSession {
   speaking: boolean;
   processing: boolean;           // Lock to prevent concurrent processing
   lastSpokeAt?: number;          // Timestamp when bot finished speaking (for cooldown)
+  startedSpeakingAt?: number;    // Timestamp when bot started speaking (for echo suppression)
   thinkingPlayer?: AudioPlayer;  // Separate player for thinking sound
   heartbeatInterval?: ReturnType<typeof setInterval>;
   lastHeartbeat?: number;
@@ -384,6 +385,18 @@ export class VoiceConnectionManager {
       // But be careful - this could be echo from the bot itself!
       // ═══════════════════════════════════════════════════════════════
       if (session.speaking || session.processing) {
+        // Ignore potential echo during the first 1.5s of speech playback
+        // Discord often picks up the bot's own audio output as "speech"
+        const ECHO_SUPPRESSION_MS = 1500;
+        const timeSinceSpeakingStarted = session.startedSpeakingAt 
+          ? Date.now() - session.startedSpeakingAt 
+          : Infinity;
+        
+        if (timeSinceSpeakingStarted < ECHO_SUPPRESSION_MS) {
+          this.logger.debug?.(`[discord-voice] Ignoring speech during echo suppression window (${Math.round(timeSinceSpeakingStarted)}ms < ${ECHO_SUPPRESSION_MS}ms)`);
+          return;
+        }
+        
         if (this.config.bargeIn && session.speaking) {
           this.logger.info(`[discord-voice] Barge-in detected! Stopping speech.`);
           this.stopSpeaking(session);
@@ -689,6 +702,7 @@ export class VoiceConnectionManager {
     }
 
     session.speaking = true;
+    session.startedSpeakingAt = Date.now();
 
     try {
       this.logger.info(`[discord-voice] Speaking: "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}"`);
