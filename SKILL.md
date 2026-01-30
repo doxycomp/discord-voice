@@ -20,7 +20,7 @@ metadata:
               "discord-voice": {
                 "enabled": true,
                 "config": {
-                  "sttProvider": "whisper",
+                  "sttProvider": "local-whisper",
                   "ttsProvider": "openai",
                   "ttsVoice": "nova",
                   "vadSensitivity": "medium",
@@ -42,7 +42,7 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
 
 - **Join/Leave Voice Channels**: Via slash commands, CLI, or agent tool
 - **Voice Activity Detection (VAD)**: Automatically detects when users are speaking
-- **Speech-to-Text**: Whisper API (OpenAI) or Deepgram
+- **Speech-to-Text**: Whisper API (OpenAI), Deepgram, or Local Whisper (Offline)
 - **Streaming STT**: Real-time transcription with Deepgram WebSocket (~1s latency reduction)
 - **Agent Integration**: Transcribed speech is routed through the Clawdbot agent
 - **Text-to-Speech**: OpenAI TTS, ElevenLabs, or Kokoro (Local/Offline)
@@ -97,7 +97,7 @@ npm install
       "discord-voice": {
         enabled: true,
         config: {
-          sttProvider: "whisper",
+          sttProvider: "local-whisper",
           ttsProvider: "openai",
           ttsVoice: "nova",
           vadSensitivity: "medium",
@@ -126,20 +126,20 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 
 ## Configuration
 
-| Option                | Type     | Default     | Description                                   |
-| --------------------- | -------- | ----------- | --------------------------------------------- |
-| `enabled`             | boolean  | `true`      | Enable/disable the plugin                     |
-| `sttProvider`         | string   | `"whisper"` | `"whisper"` or `"deepgram"`                   |
-| `streamingSTT`        | boolean  | `true`      | Use streaming STT (Deepgram only, ~1s faster) |
-| `ttsProvider`         | string   | `"openai"`  | `"openai"` or `"elevenlabs"`                  |
-| `ttsVoice`            | string   | `"nova"`    | Voice ID for TTS                              |
-| `vadSensitivity`      | string   | `"medium"`  | `"low"`, `"medium"`, or `"high"`              |
-| `bargeIn`             | boolean  | `true`      | Stop speaking when user talks                 |
-| `allowedUsers`        | string[] | `[]`        | User IDs allowed (empty = all)                |
-| `silenceThresholdMs`  | number   | `1500`      | Silence before processing (ms)                |
-| `maxRecordingMs`      | number   | `30000`     | Max recording length (ms)                     |
-| `heartbeatIntervalMs` | number   | `30000`     | Connection health check interval              |
-| `autoJoinChannel`     | string   | `undefined` | Channel ID to auto-join on startup            |
+| Option                | Type     | Default           | Description                                     |
+| --------------------- | -------- | ----------------- | ----------------------------------------------- |
+| `enabled`             | boolean  | `true`            | Enable/disable the plugin                       |
+| `sttProvider`         | string   | `"local-whisper"` | `"whisper"`, `"deepgram"`, or `"local-whisper"` |
+| `streamingSTT`        | boolean  | `true`            | Use streaming STT (Deepgram only, ~1s faster)   |
+| `ttsProvider`         | string   | `"openai"`        | `"openai"` or `"elevenlabs"`                    |
+| `ttsVoice`            | string   | `"nova"`          | Voice ID for TTS                                |
+| `vadSensitivity`      | string   | `"medium"`        | `"low"`, `"medium"`, or `"high"`                |
+| `bargeIn`             | boolean  | `true`            | Stop speaking when user talks                   |
+| `allowedUsers`        | string[] | `[]`              | User IDs allowed (empty = all)                  |
+| `silenceThresholdMs`  | number   | `1500`            | Silence before processing (ms)                  |
+| `maxRecordingMs`      | number   | `30000`           | Max recording length (ms)                       |
+| `heartbeatIntervalMs` | number   | `30000`           | Connection health check interval                |
+| `autoJoinChannel`     | string   | `undefined`       | Channel ID to auto-join on startup              |
 
 ### Provider Configuration
 

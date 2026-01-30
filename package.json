@@ -4,6 +4,11 @@
   "type": "module",
   "description": "Discord voice channel plugin for Clawdbot - real-time voice conversations",
   "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "lint": "eslint src --ext .ts"
+  },
   "author": "Discord Voice Plugin Contributors",
   "license": "MIT",
   "repository": {

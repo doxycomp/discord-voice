@@ -162,6 +162,94 @@ export class DeepgramSTT implements STTProvider {
   }
 }
 
+// Type definitions for the pipeline
+interface ASRPipelineOutput {
+  text: string;
+}
+
+type ASRPipeline = (audio: Float32Array, options?: Record<string, unknown>) => Promise<ASRPipelineOutput>;
+
+// Shared instance for the pipeline (Singleton)
+let sharedWhisperPipeline: ASRPipeline | null = null;
+
+/**
+ * Local Whisper STT Provider (Offline)
+ */
+export class LocalWhisperSTT implements STTProvider {
+  private model: string;
+  private quantized: boolean;
+
+  constructor(config: DiscordVoiceConfig) {
+    this.model = config.localWhisper?.model || "Xenova/whisper-tiny.en";
+    this.quantized = config.localWhisper?.quantized ?? true;
+  }
+
+  private async ensureInitialized() {
+    if (sharedWhisperPipeline) return;
+
+    console.log(`Loading local Whisper model: ${this.model} (quantized: ${this.quantized})...`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sharedWhisperPipeline = (await pipeline("automatic-speech-recognition", this.model, {
+      quantized: this.quantized,
+    })) as unknown as ASRPipeline;
+    console.log("Local Whisper model loaded.");
+  }
+
+  async transcribe(audioBuffer: Buffer, sampleRate: number): Promise<STTResult> {
+    await this.ensureInitialized();
+
+    if (!sharedWhisperPipeline) {
+      throw new Error("Failed to initialize Whisper pipeline");
+    }
+
+    // Convert to 16kHz float32 for Whisper
+    const audioData = this.convertPcmToFloat32(audioBuffer, sampleRate);
+
+    // Run transcription
+    const output = await sharedWhisperPipeline(audioData, {
+      language: "english", // optional, but helps
+      chunk_length_s: 30,
+      stride_length_s: 5,
+    });
+
+    // Output format depends on the pipeline options, but usually has .text
+    const text = (output?.text || "").trim();
+
+    return {
+      text,
+      language: "en", // assumed/detected
+    };
+  }
+
+  /**
+   * Convert raw PCM (Int16) to Float32 and resample to 16kHz
+   */
+  private convertPcmToFloat32(pcmBuffer: Buffer, inputSampleRate: number): Float32Array {
+    // 1. Create Wav file from raw PCM to handle resampling easily
+    const wav = new WaveFile();
+
+    // Create a new WAV from the raw PCM data
+    // 1 channel, inputSampleRate, '16' bit depth
+    wav.fromScratch(1, inputSampleRate, "16", pcmBuffer);
+
+    // 2. Resample to 16000Hz if needed (Whisper expects 16kHz)
+    if (inputSampleRate !== 16000) {
+      wav.toSampleRate(16000);
+    }
+
+    // 3. Get samples as Float32Array
+    const samples = wav.getSamples(false, Float32Array);
+
+    // Check if samples is a Float32Array (it should be due to the second argument)
+    if (samples instanceof Float32Array) {
+      return samples;
+    }
+
+    // Fallback/Safety cast if types are weird
+    return samples as unknown as Float32Array;
+  }
+}
+
 /**
  * Create STT provider based on config
  */
@@ -169,6 +257,8 @@ export function createSTTProvider(config: DiscordVoiceConfig): STTProvider {
   switch (config.sttProvider) {
     case "deepgram":
       return new DeepgramSTT(config);
+    case "local-whisper":
+      return new LocalWhisperSTT(config);
     case "whisper":
     default:
       return new WhisperSTT(config);
