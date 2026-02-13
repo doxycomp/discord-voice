@@ -35,21 +35,7 @@ import * as prism from "prism-media";
 import type { DiscordVoiceConfig } from "./config.js";
 import { getVadThreshold } from "./config.js";
 
-/**
- * Get RMS threshold based on VAD sensitivity
- * Higher = less sensitive (filters more noise)
- */
-function getRmsThreshold(sensitivity: "low" | "medium" | "high"): number {
-  switch (sensitivity) {
-    case "low":
-      return 400;   // More sensitive - picks up quieter speech
-    case "high":
-      return 1200;  // Less sensitive - requires louder speech, filters more noise
-    case "medium":
-    default:
-      return 800;   // Balanced default
-  }
-}
+import { SPEAK_COOLDOWN_VAD_MS, SPEAK_COOLDOWN_PROCESSING_MS, getRmsThreshold } from "./constants.js";
 import { createSTTProvider, type STTProvider } from "./stt.js";
 import { createTTSProvider, type TTSProvider } from "./tts.js";
 import { StreamingSTTManager, createStreamingSTTProvider } from "./streaming-stt.js";
@@ -133,7 +119,7 @@ export class VoiceConnectionManager {
     }
     // Initialize streaming STT if using Deepgram with streaming enabled
     if (!this.streamingSTT && this.config.sttProvider === "deepgram" && this.config.streamingSTT) {
-      this.streamingSTT = createStreamingSTTProvider(this.config);
+      this.streamingSTT = createStreamingSTTProvider(this.config, this.logger);
     }
   }
 
@@ -372,8 +358,7 @@ export class VoiceConnectionManager {
       }
 
       // Ignore audio during cooldown period (prevents echo from triggering)
-      const SPEAK_COOLDOWN_MS = 800;
-      if (session.lastSpokeAt && (Date.now() - session.lastSpokeAt) < SPEAK_COOLDOWN_MS) {
+      if (session.lastSpokeAt && (Date.now() - session.lastSpokeAt) < SPEAK_COOLDOWN_VAD_MS) {
         this.logger.debug?.(`[discord-voice] Ignoring speech during cooldown (likely echo)`);
         return;
       }
@@ -591,9 +576,8 @@ export class VoiceConnectionManager {
       return;
     }
 
-    // Cooldown after speaking to prevent echo/accidental triggers (500ms)
-    const SPEAK_COOLDOWN_MS = 500;
-    if (session.lastSpokeAt && (Date.now() - session.lastSpokeAt) < SPEAK_COOLDOWN_MS) {
+    // Cooldown after speaking to prevent echo/accidental triggers
+    if (session.lastSpokeAt && (Date.now() - session.lastSpokeAt) < SPEAK_COOLDOWN_PROCESSING_MS) {
       this.logger.debug?.(`[discord-voice] Skipping processing - in cooldown period after speaking`);
       return;
     }
@@ -826,37 +810,6 @@ export class VoiceConnectionManager {
         session.thinkingPlayer = undefined;
         session.connection.subscribe(session.player);
       };
-    }
-  }
-
-  /**
-   * Play thinking sound once (simple version - uses main player, no loop)
-   */
-  private async playThinkingSoundSimple(session: VoiceSession): Promise<void> {
-    try {
-      const fs = await import("node:fs");
-      const path = await import("node:path");
-      const { fileURLToPath } = await import("node:url");
-      
-      const __dirname = path.dirname(fileURLToPath(import.meta.url));
-      const thinkingPath = path.join(__dirname, "..", "assets", "thinking.mp3");
-      
-      if (!fs.existsSync(thinkingPath)) {
-        return;
-      }
-
-      const audioBuffer = fs.readFileSync(thinkingPath);
-      const resource = createAudioResource(Readable.from(audioBuffer), {
-        inlineVolume: true,
-      });
-      resource.volume?.setVolume(0.5);
-      
-      session.player.play(resource);
-      
-      // Don't wait for it to finish - let it play while processing
-      // The response TTS will interrupt it naturally
-    } catch (error) {
-      this.logger.debug?.(`[discord-voice] Error playing thinking sound: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

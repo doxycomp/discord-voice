@@ -22,6 +22,16 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
   - `ffmpeg` (audio processing)
   - Native build tools for `@discordjs/opus` and `sodium-native`
 
+### Optional: Thinking Sound
+
+While the bot processes your speech and generates a response, it can play a short looping "thinking" sound. Place an MP3 file at:
+
+```
+<plugin-root>/assets/thinking.mp3
+```
+
+If the file is missing, the plugin runs normally without the thinking sound. Any short, subtle ambient or notification MP3 works (e.g. 2–5 seconds, looped).
+
 ## Installation
 
 ### 1. Install System Dependencies

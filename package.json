@@ -30,6 +30,9 @@
     "prism-media": "^1.3.5",
     "ws": "^8.18.0"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "clawdbot": {
     "extensions": [
       "./index.ts"
