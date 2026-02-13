@@ -1,13 +1,13 @@
 /**
- * Discord Voice Plugin for Clawdbot
- * 
+ * Discord Voice Plugin for OpenClaw
+ *
  * Enables real-time voice conversations in Discord voice channels.
- * 
+ *
  * Features:
  * - Join/leave voice channels via slash commands (/voice join, /voice leave)
  * - Listen to user speech with VAD (Voice Activity Detection)
  * - Speech-to-text via Whisper API or Deepgram
- * - Routes transcribed text through Clawdbot agent
+ * - Routes transcribed text through OpenClaw agent
  * - Text-to-speech via OpenAI or ElevenLabs
  * - Plays audio responses back to the voice channel
  */

@@ -1,3 +1,12 @@
+/**
+ * Core bridge – loads OpenClaw extension API for agent invocation.
+ * Uses the same pattern as the official voice-call plugin:
+ * resolves openclaw package root and imports from dist/extensionAPI.js.
+ *
+ * Requires OpenClaw to be installed (e.g. openclaw gateway). Set OPENCLAW_ROOT
+ * if auto-detection fails.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -86,9 +95,10 @@ function findPackageRoot(startDir: string, name: string): string | null {
   }
 }
 
-function resolveClawdbotRoot(): string {
+function resolveOpenClawRoot(): string {
   if (coreRootCache) return coreRootCache;
-  const override = process.env.CLAWDBOT_ROOT?.trim();
+
+  const override = process.env.OPENCLAW_ROOT?.trim();
   if (override) {
     coreRootCache = override;
     return override;
@@ -107,7 +117,7 @@ function resolveClawdbotRoot(): string {
   }
 
   for (const start of candidates) {
-    const found = findPackageRoot(start, "clawdbot");
+    const found = findPackageRoot(start, "openclaw");
     if (found) {
       coreRootCache = found;
       return found;
@@ -115,82 +125,23 @@ function resolveClawdbotRoot(): string {
   }
 
   throw new Error(
-    "Unable to resolve Clawdbot root. Set CLAWDBOT_ROOT to the package root.",
+    "Unable to resolve OpenClaw root. Set OPENCLAW_ROOT to the package root, or ensure openclaw is installed and the gateway runs from its context.",
   );
 }
 
-async function importCoreModule<T>(relativePath: string): Promise<T> {
-  const root = resolveClawdbotRoot();
-  const distPath = path.join(root, "dist", relativePath);
+async function importCoreExtensionAPI(): Promise<CoreAgentDeps> {
+  const distPath = path.join(resolveOpenClawRoot(), "dist", "extensionAPI.js");
   if (!fs.existsSync(distPath)) {
     throw new Error(
-      `Missing core module at ${distPath}. Run \`pnpm build\` or install the official package.`,
+      `Missing extension API at ${distPath}. Run \`pnpm build\` in OpenClaw or install the official openclaw package.`,
     );
   }
-  return (await import(pathToFileURL(distPath).href)) as T;
+  return (await import(pathToFileURL(distPath).href)) as CoreAgentDeps;
 }
 
 export async function loadCoreAgentDeps(): Promise<CoreAgentDeps> {
   if (coreDepsPromise) return coreDepsPromise;
 
-  coreDepsPromise = (async () => {
-    const [
-      agentScope,
-      defaults,
-      identity,
-      modelSelection,
-      piEmbedded,
-      timeout,
-      workspace,
-      sessions,
-    ] = await Promise.all([
-      importCoreModule<{
-        resolveAgentDir: CoreAgentDeps["resolveAgentDir"];
-        resolveAgentWorkspaceDir: CoreAgentDeps["resolveAgentWorkspaceDir"];
-      }>("agents/agent-scope.js"),
-      importCoreModule<{
-        DEFAULT_MODEL: string;
-        DEFAULT_PROVIDER: string;
-      }>("agents/defaults.js"),
-      importCoreModule<{
-        resolveAgentIdentity: CoreAgentDeps["resolveAgentIdentity"];
-      }>("agents/identity.js"),
-      importCoreModule<{
-        resolveThinkingDefault: CoreAgentDeps["resolveThinkingDefault"];
-      }>("agents/model-selection.js"),
-      importCoreModule<{
-        runEmbeddedPiAgent: CoreAgentDeps["runEmbeddedPiAgent"];
-      }>("agents/pi-embedded.js"),
-      importCoreModule<{
-        resolveAgentTimeoutMs: CoreAgentDeps["resolveAgentTimeoutMs"];
-      }>("agents/timeout.js"),
-      importCoreModule<{
-        ensureAgentWorkspace: CoreAgentDeps["ensureAgentWorkspace"];
-      }>("agents/workspace.js"),
-      importCoreModule<{
-        resolveStorePath: CoreAgentDeps["resolveStorePath"];
-        loadSessionStore: CoreAgentDeps["loadSessionStore"];
-        saveSessionStore: CoreAgentDeps["saveSessionStore"];
-        resolveSessionFilePath: CoreAgentDeps["resolveSessionFilePath"];
-      }>("config/sessions.js"),
-    ]);
-
-    return {
-      resolveAgentDir: agentScope.resolveAgentDir,
-      resolveAgentWorkspaceDir: agentScope.resolveAgentWorkspaceDir,
-      resolveAgentIdentity: identity.resolveAgentIdentity,
-      resolveThinkingDefault: modelSelection.resolveThinkingDefault,
-      runEmbeddedPiAgent: piEmbedded.runEmbeddedPiAgent,
-      resolveAgentTimeoutMs: timeout.resolveAgentTimeoutMs,
-      ensureAgentWorkspace: workspace.ensureAgentWorkspace,
-      resolveStorePath: sessions.resolveStorePath,
-      loadSessionStore: sessions.loadSessionStore,
-      saveSessionStore: sessions.saveSessionStore,
-      resolveSessionFilePath: sessions.resolveSessionFilePath,
-      DEFAULT_MODEL: defaults.DEFAULT_MODEL,
-      DEFAULT_PROVIDER: defaults.DEFAULT_PROVIDER,
-    };
-  })();
-
+  coreDepsPromise = importCoreExtensionAPI();
   return coreDepsPromise;
 }

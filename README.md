@@ -1,4 +1,4 @@
-# Discord Voice Plugin for Clawdbot
+# Discord Voice Plugin for OpenClaw
 
 Real-time voice conversations in Discord voice channels. Join a voice channel, speak, and have your words transcribed, processed by Claude, and spoken back.
 
@@ -50,11 +50,15 @@ brew install ffmpeg
 ### 2. Install Node Dependencies
 
 ```bash
-cd ~/.clawdbot/extensions/discord-voice
+# When installed as OpenClaw plugin
+cd ~/.openclaw/extensions/discord-voice
 npm install
+
+# Or for development (link from OpenClaw workspace)
+openclaw plugins install ./path/to/discord-voice
 ```
 
-### 3. Configure in clawdbot.json
+### 3. Configure in openclaw.json (or ~/.openclaw/openclaw.json)
 
 ```json5
 {
@@ -280,6 +284,12 @@ DEBUG=discord-voice clawdbot gateway start
 - Requires stable network for real-time audio
 - TTS output may have slight delay due to synthesis
 
+## OpenClaw Compatibility
+
+This plugin targets **OpenClaw** (formerly Clawdbot). It uses the same core bridge pattern as the official voice-call plugin: it loads the agent API from OpenClaw's `dist/extensionAPI.js`. The plugin is discovered via `openclaw.extensions` in package.json and `openclaw.plugin.json`.
+
+If auto-detection of the OpenClaw root fails, set `OPENCLAW_ROOT` to the OpenClaw package directory (e.g. the repo root or `node_modules/openclaw`).
+
 ## License
 
-Same as Clawdbot.
+MIT
