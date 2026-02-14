@@ -4,12 +4,7 @@
 
 import * as net from "node:net";
 import type { DiscordVoiceConfig } from "./config.js";
-import { pipeline, env } from "@xenova/transformers";
 import { WaveFile } from "wavefile";
-
-// Disable local model checks if not using local models, but here we want local
-env.allowLocalModels = true; // Allow loading from local file system
-env.useBrowserCache = false; // Ensure Node cache is used
 
 export interface STTResult {
   text: string;
@@ -255,12 +250,20 @@ export class LocalWhisperSTT implements STTProvider {
     if (sharedWhisperPipeline) return;
 
     if (!LocalWhisperSTT.initializationPromise) {
+      const model = this.model;
+      const quantized = this.quantized;
       LocalWhisperSTT.initializationPromise = (async () => {
         try {
-          console.log(`Loading local Whisper model: ${this.model} (quantized: ${this.quantized})...`);
+          // Lazy-load Xenova only when LocalWhisperSTT is actually used.
+          // Top-level import can crash OpenClaw/Electron on startup.
+          const { pipeline, env } = await import("@xenova/transformers");
+          env.allowLocalModels = true;
+          env.useBrowserCache = false;
+
+          console.log(`Loading local Whisper model: ${model} (quantized: ${quantized})...`);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          sharedWhisperPipeline = (await pipeline("automatic-speech-recognition", this.model, {
-            quantized: this.quantized,
+          sharedWhisperPipeline = (await pipeline("automatic-speech-recognition", model, {
+            quantized,
           })) as unknown as ASRPipeline;
           console.log("Local Whisper model loaded.");
         } catch (error) {
