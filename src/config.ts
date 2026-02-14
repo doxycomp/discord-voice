@@ -23,6 +23,8 @@ export interface DiscordVoiceConfig {
   maxRecordingMs: number;
   autoJoinChannel?: string; // Channel ID to auto-join on startup
   heartbeatIntervalMs?: number;  // Connection health check interval
+  /** OpenClaw package root (if auto-detection fails); path to openclaw package dir containing dist/extensionAPI.js */
+  openclawRoot?: string;
 
   /** Thinking sound played while processing; path relative to plugin root or absolute */
   thinkingSound?: {
@@ -235,6 +237,10 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
     autoJoinChannel:
       typeof obj.autoJoinChannel === "string" && obj.autoJoinChannel.trim()
         ? obj.autoJoinChannel.trim()
+        : undefined,
+    openclawRoot:
+      typeof obj.openclawRoot === "string" && obj.openclawRoot.trim()
+        ? obj.openclawRoot.trim()
         : undefined,
     heartbeatIntervalMs:
       typeof obj.heartbeatIntervalMs === "number"

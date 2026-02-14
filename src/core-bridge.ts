@@ -96,10 +96,10 @@ function findPackageRoot(startDir: string, name: string): string | null {
   }
 }
 
-function resolveOpenClawRoot(): string {
+function resolveOpenClawRoot(overrideRoot?: string): string {
   if (coreRootCache) return coreRootCache;
 
-  const override = process.env.OPENCLAW_ROOT?.trim();
+  const override = overrideRoot?.trim() || process.env.OPENCLAW_ROOT?.trim();
   if (override) {
     coreRootCache = override;
     return override;
@@ -107,14 +107,30 @@ function resolveOpenClawRoot(): string {
 
   const candidates = new Set<string>();
   if (process.argv[1]) {
-    candidates.add(path.dirname(process.argv[1]));
+    let d = path.dirname(process.argv[1]);
+    for (let i = 0; i < 5 && d; i++) {
+      candidates.add(d);
+      d = path.dirname(d);
+    }
   }
   candidates.add(process.cwd());
   try {
     const urlPath = fileURLToPath(import.meta.url);
-    candidates.add(path.dirname(urlPath));
+    let d = path.dirname(urlPath);
+    for (let i = 0; i < 6 && d; i++) {
+      candidates.add(d);
+      d = path.dirname(d);
+    }
+    // Plugin layout: discord-voice/node_modules/openclaw (e.g. extensions/discord-voice/node_modules/openclaw)
+    const pluginRoot = path.join(path.dirname(urlPath), "..");
+    candidates.add(path.join(pluginRoot, "node_modules", "openclaw"));
   } catch {
     // ignore
+  }
+  const stateDir = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME;
+  if (stateDir) {
+    candidates.add(stateDir);
+    candidates.add(path.dirname(stateDir));
   }
 
   for (const start of candidates) {
@@ -135,7 +151,6 @@ function resolveOpenClawRoot(): string {
     resolvePaths.push(scriptDir);
     resolvePaths.push(path.dirname(scriptDir)); // parent (e.g. dist -> pkg root)
   }
-  const stateDir = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME;
   if (stateDir) resolvePaths.push(stateDir);
 
   const require = createRequire(import.meta.url);
@@ -158,8 +173,8 @@ function resolveOpenClawRoot(): string {
   );
 }
 
-async function importCoreExtensionAPI(): Promise<CoreAgentDeps> {
-  const distPath = path.join(resolveOpenClawRoot(), "dist", "extensionAPI.js");
+async function importCoreExtensionAPI(overrideRoot?: string): Promise<CoreAgentDeps> {
+  const distPath = path.join(resolveOpenClawRoot(overrideRoot), "dist", "extensionAPI.js");
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Missing extension API at ${distPath}. Run \`pnpm build\` in OpenClaw or install the official openclaw package.`,
@@ -168,9 +183,9 @@ async function importCoreExtensionAPI(): Promise<CoreAgentDeps> {
   return (await import(pathToFileURL(distPath).href)) as CoreAgentDeps;
 }
 
-export async function loadCoreAgentDeps(): Promise<CoreAgentDeps> {
+export async function loadCoreAgentDeps(overrideRoot?: string): Promise<CoreAgentDeps> {
   if (coreDepsPromise) return coreDepsPromise;
 
-  coreDepsPromise = importCoreExtensionAPI();
+  coreDepsPromise = importCoreExtensionAPI(overrideRoot);
   return coreDepsPromise;
 }

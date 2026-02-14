@@ -168,7 +168,7 @@ const discordVoicePlugin = {
       api.logger.info(`[discord-voice] Processing transcript from ${userId}: "${text}"`);
 
       try {
-        const deps = await loadCoreAgentDeps();
+        const deps = await loadCoreAgentDeps(cfg.openclawRoot);
         if (!deps) {
           api.logger.error("[discord-voice] Could not load core dependencies");
           return "I'm having trouble connecting to my brain right now.";

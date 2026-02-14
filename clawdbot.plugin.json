@@ -75,6 +75,10 @@
         "type": "string",
         "description": "Voice channel ID to auto-join on startup"
       },
+      "openclawRoot": {
+        "type": "string",
+        "description": "OpenClaw package root if auto-detection fails"
+      },
       "thinkingSound": {
         "type": "object",
         "properties": {

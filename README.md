@@ -12,6 +12,7 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
 - **Text-to-Speech**: OpenAI TTS or ElevenLabs
 - **Audio Playback**: Responses are spoken back in the voice channel
 - **Barge-in Support**: Stops speaking immediately when user starts talking
+- **Thinking Sound**: Optional looping sound while processing (configurable)
 - **Auto-reconnect**: Automatic heartbeat monitoring and reconnection on disconnect
 
 ## Requirements
@@ -21,26 +22,6 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
 - System dependencies for voice:
   - `ffmpeg` (audio processing)
   - Native build tools for `@discordjs/opus` and `sodium-native`
-
-### Thinking Sound
-
-While the bot processes your speech and generates a response, it can play a short looping "thinking" sound. A default `thinking.mp3` is included in `assets/`. You can configure or disable it:
-
-```json5
-{
-  "thinkingSound": {
-    "enabled": true,           // Set to false to disable
-    "path": "assets/thinking.mp3",  // Relative to plugin root or absolute path
-    "volume": 0.7              // 0–1
-  }
-}
-```
-
-- **enabled**: `true` by default. Set to `false` to disable the thinking sound.
-- **path**: Path to MP3 file. Default `assets/thinking.mp3` (relative to plugin root). Use an absolute path for a custom file.
-- **volume**: Playback volume 0–1, default `0.7`.
-
-If the file is missing, the plugin runs without the thinking sound. Any short, subtle ambient or notification MP3 works (e.g. 2–5 seconds, looped).
 
 ## Installation
 
@@ -147,12 +128,8 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `maxRecordingMs` | number | `30000` | Max recording length (ms) |
 | `heartbeatIntervalMs` | number | `30000` | Connection health check interval |
 | `autoJoinChannel` | string | `undefined` | Channel ID to auto-join on startup |
-| `thinkingSound` | object | see below | Sound played while processing |
-
-**thinkingSound** options:
-- `enabled` (boolean, default `true`) – Enable/disable thinking sound
-- `path` (string, default `"assets/thinking.mp3"`) – Path to MP3 (relative to plugin root or absolute)
-- `volume` (number, default `0.7`) – Volume 0–1
+| `openclawRoot` | string | `undefined` | OpenClaw package root if auto-detection fails |
+| `thinkingSound` | object | see [Thinking Sound](#thinking-sound) | Sound played while processing |
 
 ### Fallbacks from Main OpenClaw Config
 
@@ -284,6 +261,26 @@ To disable (let the bot finish speaking):
 }
 ```
 
+## Thinking Sound
+
+While the bot processes speech and generates a response, it can play a short looping sound. A default `thinking.mp3` is included in `assets/`. Configure via `thinkingSound`:
+
+```json5
+{
+  "thinkingSound": {
+    "enabled": true,
+    "path": "assets/thinking.mp3",
+    "volume": 0.7
+  }
+}
+```
+
+- `enabled`: `true` by default. Set to `false` to disable.
+- `path`: Path to MP3 (relative to plugin root or absolute). Default `assets/thinking.mp3`.
+- `volume`: 0–1, default `0.7`.
+
+If the file is missing, no sound is played. Any short ambient or notification MP3 works (e.g. 2–5 seconds, looped).
+
 ## Auto-reconnect
 
 The plugin includes automatic connection health monitoring:
@@ -308,12 +305,24 @@ If the connection drops, you'll see logs like:
 ## Troubleshooting
 
 ### "Unable to resolve OpenClaw root"
-If you see this when processing voice input, set `OPENCLAW_ROOT` to the OpenClaw package directory before starting the gateway:
-```bash
-export OPENCLAW_ROOT=/path/to/openclaw   # e.g. node_modules/openclaw or the OpenClaw repo root
-openclaw gateway start
+If you see this when processing voice input, set `openclawRoot` in your plugin config to the directory that contains `dist/extensionAPI.js`:
+
+```json5
+{
+  "plugins": {
+    "entries": {
+      "discord-voice": {
+        "enabled": true,
+        "config": {
+          "openclawRoot": "/home/openclaw-user/.openclaw/extensions/discord-voice/node_modules/openclaw"
+        }
+      }
+    }
+  }
+}
 ```
-The path must contain `dist/extensionAPI.js`.
+
+Example: if your `extensionAPI.js` is at `.../discord-voice/node_modules/openclaw/dist/extensionAPI.js`, use the `node_modules/openclaw` path (the directory containing `dist/`). Alternatively, set the `OPENCLAW_ROOT` environment variable.
 
 ### "Discord client not available"
 Ensure the Discord channel is configured and the bot is connected before using voice.
@@ -360,7 +369,7 @@ DEBUG=discord-voice clawdbot gateway start
 
 This plugin targets **OpenClaw** (formerly Clawdbot). It uses the same core bridge pattern as the official voice-call plugin: it loads the agent API from OpenClaw's `dist/extensionAPI.js`. The plugin is discovered via `openclaw.extensions` in package.json and `openclaw.plugin.json`.
 
-If auto-detection of the OpenClaw root fails, set `OPENCLAW_ROOT` to the OpenClaw package directory (e.g. the repo root or `node_modules/openclaw`).
+If auto-detection fails, set `openclawRoot` in the plugin config (see Troubleshooting) or `OPENCLAW_ROOT` to the directory containing `dist/extensionAPI.js` (e.g. `.../discord-voice/node_modules/openclaw`).
 
 ## License
 
