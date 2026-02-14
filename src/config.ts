@@ -356,15 +356,18 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
         modelId: resolveElevenLabsModelId(o?.modelId),
       };
     })(),
-    deepgram: obj.deepgram && typeof obj.deepgram === "object"
-      ? {
-          apiKey: (obj.deepgram as Record<string, unknown>).apiKey as string | undefined,
-          model: ((obj.deepgram as Record<string, unknown>).model as string) || "nova-2",
-          ttsModel: typeof (obj.deepgram as Record<string, unknown>).ttsModel === "string" && (obj.deepgram as Record<string, unknown>).ttsModel
-            ? String((obj.deepgram as Record<string, unknown>).ttsModel).trim()
-            : "aura-asteria-en",
-        }
-      : undefined,
+    deepgram: (() => {
+      const dg = obj.deepgram && typeof obj.deepgram === "object" ? (obj.deepgram as Record<string, unknown>) : null;
+      if (!dg) return undefined;
+      const m = (typeof dg.model === "string" ? dg.model : "").trim();
+      const tm = (typeof dg.ttsModel === "string" ? dg.ttsModel : "").trim();
+      const isAura = (s: string) => s.toLowerCase().startsWith("aura-");
+      return {
+        apiKey: dg.apiKey as string | undefined,
+        model: isAura(m) ? "nova-2" : (m || "nova-2"),
+        ttsModel: tm || (isAura(m) ? m : "aura-asteria-en"),
+      };
+    })(),
     localWhisper:
       obj.localWhisper && typeof obj.localWhisper === "object"
         ? {
