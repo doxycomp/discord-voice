@@ -97,27 +97,58 @@ export class WhisperSTT implements STTProvider {
   }
 }
 
-/**
- * OpenAI GPT-4o mini Transcribe STT Provider
- *
- * Uses the same /audio/transcriptions endpoint as Whisper
- * with model gpt-4o-mini-transcribe for higher quality transcription.
- * See: https://platform.openai.com/docs/models/gpt-4o-mini-transcribe
- */
-export class Gpt4oMiniTranscribeSTT implements STTProvider {
-  private apiKey: string;
-  private readonly model = "gpt-4o-mini-transcribe";
+/** Shared PCM-to-WAV conversion for OpenAI transcribe providers */
+function pcmToWavOpenAI(pcmBuffer: Buffer, sampleRate: number): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBuffer.length;
+  const headerSize = 44;
+  const fileSize = headerSize + dataSize - 8;
 
-  constructor(config: DiscordVoiceConfig) {
+  const buffer = Buffer.alloc(headerSize + dataSize);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(fileSize, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  pcmBuffer.copy(buffer, headerSize);
+  return buffer;
+}
+
+/**
+ * Generic OpenAI Transcribe STT Provider
+ *
+ * Uses the /audio/transcriptions endpoint with configurable models:
+ * - gpt-4o-mini-transcribe (faster, lower cost)
+ * - gpt-4o-transcribe (higher quality)
+ * - gpt-4o-transcribe-diarize (speaker diarization)
+ * See: https://platform.openai.com/docs/models
+ */
+export class OpenAITranscribeSTT implements STTProvider {
+  private apiKey: string;
+  private model: string;
+
+  constructor(config: DiscordVoiceConfig, model: string) {
     this.apiKey = config.openai?.apiKey || process.env.OPENAI_API_KEY || "";
+    this.model = model;
 
     if (!this.apiKey) {
-      throw new Error("OpenAI API key required for GPT-4o mini transcribe STT");
+      throw new Error("OpenAI API key required for OpenAI transcribe STT");
     }
   }
 
   async transcribe(audioBuffer: Buffer, sampleRate: number): Promise<STTResult> {
-    const wavBuffer = this.pcmToWav(audioBuffer, sampleRate);
+    const wavBuffer = pcmToWavOpenAI(audioBuffer, sampleRate);
 
     const formData = new FormData();
     formData.append("file", new Blob([new Uint8Array(wavBuffer)], { type: "audio/wav" }), "audio.wav");
@@ -134,41 +165,21 @@ export class Gpt4oMiniTranscribeSTT implements STTProvider {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`GPT-4o mini transcribe API error: ${response.status} ${error}`);
+      throw new Error(`OpenAI transcribe API error (${this.model}): ${response.status} ${error}`);
     }
 
-    const result = (await response.json()) as { text: string; language?: string };
+    const result = (await response.json()) as {
+      text?: string;
+      language?: string;
+      segments?: Array<{ text: string }>;
+    };
+
+    // gpt-4o-transcribe-diarize returns segments; plain models return text
+    const text = result.text ?? (result.segments?.map((s) => s.text).join(" ") ?? "");
     return {
-      text: result.text.trim(),
+      text: text.trim(),
       language: result.language,
     };
-  }
-
-  private pcmToWav(pcmBuffer: Buffer, sampleRate: number): Buffer {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-    const blockAlign = (numChannels * bitsPerSample) / 8;
-    const dataSize = pcmBuffer.length;
-    const headerSize = 44;
-    const fileSize = headerSize + dataSize - 8;
-
-    const buffer = Buffer.alloc(headerSize + dataSize);
-    buffer.write("RIFF", 0);
-    buffer.writeUInt32LE(fileSize, 4);
-    buffer.write("WAVE", 8);
-    buffer.write("fmt ", 12);
-    buffer.writeUInt32LE(16, 16);
-    buffer.writeUInt16LE(1, 20);
-    buffer.writeUInt16LE(numChannels, 22);
-    buffer.writeUInt32LE(sampleRate, 24);
-    buffer.writeUInt32LE(byteRate, 28);
-    buffer.writeUInt16LE(blockAlign, 32);
-    buffer.writeUInt16LE(bitsPerSample, 34);
-    buffer.write("data", 36);
-    buffer.writeUInt32LE(dataSize, 40);
-    pcmBuffer.copy(buffer, headerSize);
-    return buffer;
   }
 }
 
@@ -232,6 +243,13 @@ export class DeepgramSTT implements STTProvider {
   }
 }
 
+/** OpenAI transcribe model IDs */
+export const OPENAI_TRANSCRIBE_MODELS = {
+  "gpt4o-mini": "gpt-4o-mini-transcribe",
+  "gpt4o-transcribe": "gpt-4o-transcribe",
+  "gpt4o-transcribe-diarize": "gpt-4o-transcribe-diarize",
+} as const;
+
 /**
  * Create STT provider based on config
  */
@@ -240,7 +258,9 @@ export function createSTTProvider(config: DiscordVoiceConfig): STTProvider {
     case "deepgram":
       return new DeepgramSTT(config);
     case "gpt4o-mini":
-      return new Gpt4oMiniTranscribeSTT(config);
+    case "gpt4o-transcribe":
+    case "gpt4o-transcribe-diarize":
+      return new OpenAITranscribeSTT(config, OPENAI_TRANSCRIBE_MODELS[config.sttProvider]);
     case "whisper":
     default:
       return new WhisperSTT(config);

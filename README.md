@@ -22,15 +22,25 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
   - `ffmpeg` (audio processing)
   - Native build tools for `@discordjs/opus` and `sodium-native`
 
-### Optional: Thinking Sound
+### Thinking Sound
 
-While the bot processes your speech and generates a response, it can play a short looping "thinking" sound. Place an MP3 file at:
+While the bot processes your speech and generates a response, it can play a short looping "thinking" sound. A default `thinking.mp3` is included in `assets/`. You can configure or disable it:
 
+```json5
+{
+  "thinkingSound": {
+    "enabled": true,           // Set to false to disable
+    "path": "assets/thinking.mp3",  // Relative to plugin root or absolute path
+    "volume": 0.7              // 0–1
+  }
+}
 ```
-<plugin-root>/assets/thinking.mp3
-```
 
-If the file is missing, the plugin runs normally without the thinking sound. Any short, subtle ambient or notification MP3 works (e.g. 2–5 seconds, looped).
+- **enabled**: `true` by default. Set to `false` to disable the thinking sound.
+- **path**: Path to MP3 file. Default `assets/thinking.mp3` (relative to plugin root). Use an absolute path for a custom file.
+- **volume**: Playback volume 0–1, default `0.7`.
+
+If the file is missing, the plugin runs without the thinking sound. Any short, subtle ambient or notification MP3 works (e.g. 2–5 seconds, looped).
 
 ## Installation
 
@@ -84,6 +94,34 @@ openclaw plugins install ./path/to/discord-voice
 }
 ```
 
+**Complete example (Grok + ElevenLabs + GPT-4o-mini STT):**
+
+```json5
+{
+  "plugins": {
+    "entries": {
+      "discord-voice": {
+        "enabled": true,
+        "config": {
+          "autoJoinChannel": "DISCORDCHANNELID",
+          "model": "xai/grok-4-1-fast-non-reasoning",
+          "thinkLevel": "off",
+          "sttProvider": "gpt4o-mini",
+          "ttsProvider": "elevenlabs",
+          "ttsVoice": "VOICEID",
+          "vadSensitivity": "medium",
+          "bargeIn": true,
+          "openai": { "apiKey": "sk-proj-..." },
+          "elevenlabs": { "apiKey": "sk_...", "modelId": "turbo" }
+        }
+      }
+    }
+  }
+}
+```
+
+Replace `DISCORDCHANNELID` with your Discord voice channel ID and `VOICEID` with your ElevenLabs voice ID.
+
 ### 4. Discord Bot Setup
 
 Ensure your Discord bot has these permissions:
@@ -98,7 +136,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable the plugin |
-| `sttProvider` | string | `"whisper"` | `"whisper"`, `"gpt4o-mini"` (OpenAI), or `"deepgram"` |
+| `sttProvider` | string | `"whisper"` | `"whisper"`, `"gpt4o-mini"`, `"gpt4o-transcribe"`, `"gpt4o-transcribe-diarize"` (OpenAI), or `"deepgram"` |
 | `streamingSTT` | boolean | `true` | Use streaming STT (Deepgram only, ~1s faster) |
 | `ttsProvider` | string | `"openai"` | `"openai"` or `"elevenlabs"` |
 | `ttsVoice` | string | `"nova"` | Voice ID for TTS |
@@ -109,6 +147,26 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `maxRecordingMs` | number | `30000` | Max recording length (ms) |
 | `heartbeatIntervalMs` | number | `30000` | Connection health check interval |
 | `autoJoinChannel` | string | `undefined` | Channel ID to auto-join on startup |
+| `thinkingSound` | object | see below | Sound played while processing |
+
+**thinkingSound** options:
+- `enabled` (boolean, default `true`) – Enable/disable thinking sound
+- `path` (string, default `"assets/thinking.mp3"`) – Path to MP3 (relative to plugin root or absolute)
+- `volume` (number, default `0.7`) – Volume 0–1
+
+### Fallbacks from Main OpenClaw Config
+
+When a plugin option is not set, the plugin uses values from the main OpenClaw config when available:
+
+| Plugin option | Fallback source(s) |
+|---------------|--------------------|
+| `model` | `agents.defaults.model.primary` or `agents.list[0].model` |
+| `ttsProvider` | `tts.provider` |
+| `ttsVoice` | `tts.voice` |
+| OpenAI `apiKey` | `talk.apiKey`, `providers.openai.apiKey`, or `models.providers.openai.apiKey` |
+| ElevenLabs `apiKey` | `plugins.entries.elevenlabs.config.apiKey` |
+
+The Discord bot token is always read from `channels.discord.token` (or `channels.discord.accounts.default.token`).
 
 ### Provider Configuration
 
@@ -122,7 +180,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
   }
 }
 ```
-Use `sttProvider: "gpt4o-mini"` for higher-quality transcription via GPT-4o mini transcribe.
+OpenAI STT options: `whisper` (legacy), `gpt4o-mini` (faster, cheaper), `gpt4o-transcribe` (higher quality), `gpt4o-transcribe-diarize` (with speaker identification).
 
 #### ElevenLabs (TTS only)
 ```json5
@@ -130,12 +188,14 @@ Use `sttProvider: "gpt4o-mini"` for higher-quality transcription via GPT-4o mini
   "elevenlabs": {
     "apiKey": "...",
     "voiceId": "21m00Tcm4TlvDq8ikWAM",  // Rachel
-    "modelId": "eleven_multilingual_v2"  // or "v3" for Eleven v3, "turbo" for lower latency
+    "modelId": "turbo"  // turbo | flash | v2 | v3
   }
 }
 ```
-- `modelId: "v3"` or `"eleven_multilingual_v3"` – Eleven v3 (most expressive)
-- `modelId: "turbo"` – eleven_turbo_v2_5 (faster, lower latency)
+- `modelId: "turbo"` – eleven_turbo_v2_5 (fastest, lowest latency)
+- `modelId: "flash"` – eleven_flash_v2_5 (fast)
+- `modelId: "v2"` – eleven_multilingual_v2 (default, balanced)
+- `modelId: "v3"` – eleven_multilingual_v3 (most expressive)
 
 #### Deepgram (STT only)
 ```json5

@@ -12,9 +12,9 @@
       },
       "sttProvider": {
         "type": "string",
-        "enum": ["whisper", "gpt4o-mini", "deepgram"],
+        "enum": ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram"],
         "default": "whisper",
-        "description": "whisper (legacy), gpt4o-mini (higher quality), or deepgram"
+        "description": "OpenAI: whisper, gpt4o-mini, gpt4o-transcribe, gpt4o-transcribe-diarize; or deepgram"
       },
       "streamingSTT": {
         "type": "boolean",
@@ -67,6 +67,14 @@
         "type": "string",
         "description": "Voice channel ID to auto-join on startup"
       },
+      "thinkingSound": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean", "default": true, "description": "Play sound while processing" },
+          "path": { "type": "string", "default": "assets/thinking.mp3", "description": "Path to MP3 (relative to plugin root or absolute)" },
+          "volume": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1, "description": "Volume 0-1" }
+        }
+      },
       "openai": {
         "type": "object",
         "properties": {
@@ -83,7 +91,7 @@
           "modelId": {
             "type": "string",
             "default": "eleven_multilingual_v2",
-            "description": "v2, v3 (Eleven v3), turbo, or full model ID"
+            "description": "turbo, flash, v2, v3, or full model ID (eleven_turbo_v2_5, eleven_flash_v2_5, eleven_multilingual_v2, eleven_multilingual_v3)"
           }
         }
       },
@@ -101,10 +109,10 @@
       "label": "Enable Discord Voice",
       "help": "Enable real-time voice conversations in Discord voice channels"
     },
-    "sttProvider": {
-      "label": "Speech-to-Text Provider",
-      "help": "whisper, gpt4o-mini (OpenAI), or deepgram"
-    },
+"sttProvider": {
+        "label": "Speech-to-Text Provider",
+        "help": "whisper, gpt4o-mini, gpt4o-transcribe, gpt4o-transcribe-diarize (OpenAI), or deepgram"
+      },
     "ttsProvider": {
       "label": "Text-to-Speech Provider",
       "help": "Use 'openai' or 'elevenlabs'"
@@ -125,8 +133,11 @@
     "elevenlabs.apiKey": { "label": "ElevenLabs API Key", "sensitive": true },
     "elevenlabs.modelId": {
       "label": "ElevenLabs Model",
-      "help": "v2, v3 (Eleven v3), turbo, or full model ID"
+      "help": "turbo, flash, v2, v3 (or full model ID)"
     },
-    "deepgram.apiKey": { "label": "Deepgram API Key", "sensitive": true }
+    "deepgram.apiKey": { "label": "Deepgram API Key", "sensitive": true },
+    "thinkingSound.enabled": { "label": "Thinking Sound", "help": "Play sound while processing (default: on)" },
+    "thinkingSound.path": { "label": "Thinking Sound File", "help": "Path to MP3 (default: assets/thinking.mp3)" },
+    "thinkingSound.volume": { "label": "Thinking Sound Volume", "help": "Volume 0-1 (default: 0.7)" }
   }
 }

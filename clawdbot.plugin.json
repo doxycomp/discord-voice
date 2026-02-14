@@ -12,7 +12,7 @@
       },
       "sttProvider": {
         "type": "string",
-        "enum": ["whisper", "gpt4o-mini", "deepgram"],
+        "enum": ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram"],
         "default": "whisper"
       },
       "streamingSTT": {
@@ -75,6 +75,14 @@
         "type": "string",
         "description": "Voice channel ID to auto-join on startup"
       },
+      "thinkingSound": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "path": { "type": "string", "default": "assets/thinking.mp3" },
+          "volume": { "type": "number", "default": 0.7, "minimum": 0, "maximum": 1 }
+        }
+      },
       "openai": {
         "type": "object",
         "properties": {
@@ -88,7 +96,7 @@
         "properties": {
           "apiKey": { "type": "string" },
           "voiceId": { "type": "string" },
-          "modelId": { "type": "string", "default": "eleven_multilingual_v2", "description": "v2, v3 (Eleven v3), turbo, or full model ID" }
+          "modelId": { "type": "string", "default": "eleven_multilingual_v2", "description": "turbo, flash, v2, v3, or full model ID" }
         }
       },
       "deepgram": {
@@ -107,7 +115,7 @@
     },
     "sttProvider": {
       "label": "Speech-to-Text Provider",
-      "help": "whisper, gpt4o-mini (OpenAI), or deepgram"
+      "help": "whisper, gpt4o-mini, gpt4o-transcribe, gpt4o-transcribe-diarize (OpenAI), or deepgram"
     },
     "ttsProvider": {
       "label": "Text-to-Speech Provider",
@@ -135,8 +143,11 @@
       },
       "elevenlabs.modelId": {
         "label": "ElevenLabs Model",
-        "help": "v2, v3 (Eleven v3), turbo, or full model ID"
+        "help": "turbo, flash, v2, v3 (or full model ID)"
       },
+      "thinkingSound.enabled": { "label": "Thinking Sound", "help": "Play sound while processing" },
+      "thinkingSound.path": { "label": "Thinking Sound File", "help": "Path to MP3" },
+      "thinkingSound.volume": { "label": "Thinking Sound Volume", "help": "Volume 0-1" },
     "deepgram.apiKey": {
       "label": "Deepgram API Key",
       "sensitive": true

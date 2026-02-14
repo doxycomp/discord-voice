@@ -632,7 +632,7 @@ export class VoiceConnectionManager {
 
       this.logger.info(`[discord-voice] Transcribed: "${transcribedText}"`);
 
-      // Play looping thinking sound while processing
+      // Play looping thinking sound while processing (if enabled)
       const stopThinking = await this.startThinkingLoop(session);
 
       let response: string;
@@ -759,24 +759,30 @@ export class VoiceConnectionManager {
 
   /**
    * Start looping thinking sound, returns stop function
+   * No-op if disabled or file not found
    */
   private async startThinkingLoop(session: VoiceSession): Promise<() => void> {
+    const ts = this.config.thinkingSound;
+    if (ts?.enabled === false) return () => {};
+
     let stopped = false;
-    
     try {
       const fs = await import("node:fs");
       const path = await import("node:path");
       const { fileURLToPath } = await import("node:url");
-      
+
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
-      const thinkingPath = path.join(__dirname, "..", "assets", "thinking.mp3");
-      
+      const pluginRoot = path.join(__dirname, "..");
+      const pathRaw = ts?.path ?? "assets/thinking.mp3";
+      const thinkingPath = path.isAbsolute(pathRaw) ? pathRaw : path.join(pluginRoot, pathRaw);
+
       if (!fs.existsSync(thinkingPath)) {
         return () => {};
       }
 
       const audioData = fs.readFileSync(thinkingPath);
-      
+      const volume = typeof ts?.volume === "number" && ts.volume >= 0 && ts.volume <= 1 ? ts.volume : 0.7;
+
       // Create separate player for thinking sound
       const thinkingPlayer = createAudioPlayer();
       session.thinkingPlayer = thinkingPlayer;
@@ -787,7 +793,7 @@ export class VoiceConnectionManager {
         const resource = createAudioResource(Readable.from(Buffer.from(audioData)), {
           inlineVolume: true,
         });
-        resource.volume?.setVolume(0.7);
+        resource.volume?.setVolume(volume);
         thinkingPlayer.play(resource);
       };
 

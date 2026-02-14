@@ -99,7 +99,7 @@ const discordVoicePlugin = {
   },
 
   register(api: PluginApi) {
-    const cfg = parseConfig(api.pluginConfig);
+    const cfg = parseConfig(api.pluginConfig, api.config as Record<string, unknown>);
     let voiceManager: VoiceConnectionManager | null = null;
     let discordClient: Client | null = null;
     let clientReady = false;
