@@ -51,13 +51,14 @@ export interface DiscordVoiceConfig {
     apiKey?: string;
     whisperModel?: string;
     ttsModel?: string;
+    /** OpenAI TTS voice: nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral. Default: nova */
+    voice?: string;
   };
   elevenlabs?: {
     apiKey?: string;
     voiceId?: string;
     /**
-     * Model ID: eleven_multilingual_v2 (default), eleven_multilingual_v3 (Eleven v3),
-     * eleven_turbo_v2_5, eleven_flash_v2_5, etc.
+     * Model ID: eleven_turbo_v2_5 (default), eleven_flash_v2_5, eleven_multilingual_v2, eleven_multilingual_v3, etc.
      */
     modelId?: string;
   };
@@ -72,6 +73,8 @@ export interface DiscordVoiceConfig {
   kokoro?: {
     modelId?: string;
     dtype?: "fp32" | "fp16" | "q8" | "q4" | "q4f16";
+    /** Kokoro voice: af_heart, af_bella, af_nicole, etc. Default: af_heart */
+    voice?: string;
   };
 }
 
@@ -110,7 +113,7 @@ function resolveElevenLabsModelId(raw: unknown): string {
   const mapped = ELEVENLABS_MODELS[s as keyof typeof ELEVENLABS_MODELS];
   if (mapped) return mapped;
   if (typeof raw === "string" && raw.trim()) return raw.trim();
-  return "eleven_multilingual_v2";
+  return "eleven_turbo_v2_5";
 }
 
 function getStr(obj: unknown, ...path: string[]): string | undefined {
@@ -298,6 +301,7 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
         apiKey,
         whisperModel: (o?.whisperModel as string) || "whisper-1",
         ttsModel: (o?.ttsModel as string) || "tts-1",
+        voice: typeof o?.voice === "string" && o.voice.trim() ? (o.voice as string).trim() : "nova",
       };
     })(),
     elevenlabs: (() => {
@@ -336,6 +340,9 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
             dtype: (["fp32", "fp16", "q8", "q4", "q4f16"].includes((obj.kokoro as Record<string, unknown>).dtype as string)
               ? (obj.kokoro as Record<string, unknown>).dtype
               : "fp32") as "fp32" | "fp16" | "q8" | "q4" | "q4f16",
+            voice: typeof (obj.kokoro as Record<string, unknown>).voice === "string" && (obj.kokoro as Record<string, unknown>).voice
+              ? String((obj.kokoro as Record<string, unknown>).voice).trim()
+              : "af_heart",
           }
         : undefined,
     thinkingSound: (() => {

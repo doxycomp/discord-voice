@@ -8,6 +8,7 @@
  * - Streaming STT: Real-time transcription with Deepgram
  */
 
+import emojiRegex from "emoji-regex";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -110,6 +111,8 @@ export interface VoiceSession {
   heartbeatInterval?: ReturnType<typeof setInterval>;
   lastHeartbeat?: number;
   reconnecting?: boolean;
+  /** When true, use fallback TTS for rest of session (set after primary fails with quota/rate limit) */
+  useFallbackTts?: boolean;
 }
 
 export class VoiceConnectionManager {
@@ -768,6 +771,11 @@ export class VoiceConnectionManager {
       throw new Error("Not connected to voice channel");
     }
 
+    // Strip emojis before TTS when noEmojiHint is set (avoids Kokoro/others reading them aloud)
+    if (this.config.noEmojiHint !== false) {
+      text = text.replace(emojiRegex(), "").replace(/\s{2,}/g, " ").trim();
+    }
+
     this.ensureProviders();
 
     if (!this.streamingTTS && !this.ttsProvider) {
@@ -802,9 +810,24 @@ export class VoiceConnectionManager {
       this.logger.info(`[discord-voice] Speaking: "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}"`);
 
       let resource: ReturnType<typeof createAudioResource> | null = null;
+      const fallbackProvider = this.config.ttsFallbackProvider;
 
-      // Try primary: streaming first, then batch
-      if (this.streamingTTS) {
+      // If session already switched to fallback (e.g. quota hit earlier), use it for rest of session
+      if (session.useFallbackTts && fallbackProvider) {
+        try {
+          resource = await this.tryGetResourceWithProvider(text, fallbackProvider);
+          if (resource) {
+            this.logger.debug?.(`[discord-voice] Using fallback TTS (session): ${fallbackProvider}`);
+          }
+        } catch (fbErr) {
+          this.logger.warn(
+            `[discord-voice] Fallback TTS failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`
+          );
+        }
+      }
+
+      // Try primary: streaming first, then batch (only when not already on fallback)
+      if (!resource && this.streamingTTS) {
         try {
           const streamResult = await this.streamingTTS.synthesizeStream(text);
           if (streamResult.format === "opus") {
@@ -818,17 +841,15 @@ export class VoiceConnectionManager {
             `[discord-voice] Streaming TTS failed, falling back to buffered: ${streamError instanceof Error ? streamError.message : String(streamError)}`
           );
           // If retryable (quota/rate limit) and fallback configured, skip batch and try fallback
-          if (
-            this.config.ttsFallbackProvider &&
-            isRetryableTtsError(streamError)
-          ) {
+          if (fallbackProvider && isRetryableTtsError(streamError)) {
             this.logger.warn(
-              `[discord-voice] Primary TTS failed (quota/rate limit), trying fallback: ${this.config.ttsFallbackProvider}`
+              `[discord-voice] Primary TTS failed (quota/rate limit), trying fallback: ${fallbackProvider}`
             );
             try {
-              resource = await this.tryGetResourceWithProvider(text, this.config.ttsFallbackProvider);
+              resource = await this.tryGetResourceWithProvider(text, fallbackProvider);
               if (resource) {
-                this.logger.info(`[discord-voice] Using fallback TTS: ${this.config.ttsFallbackProvider}`);
+                session.useFallbackTts = true;
+                this.logger.info(`[discord-voice] Using fallback TTS: ${fallbackProvider} (session will stay on fallback)`);
               }
             } catch {
               // Fall through to batch
@@ -844,17 +865,15 @@ export class VoiceConnectionManager {
           this.logger.debug?.(`[discord-voice] Using buffered TTS`);
         } catch (batchError) {
           // Primary failed – try fallback if configured and error is retryable
-          if (
-            this.config.ttsFallbackProvider &&
-            isRetryableTtsError(batchError)
-          ) {
+          if (fallbackProvider && isRetryableTtsError(batchError)) {
             this.logger.warn(
-              `[discord-voice] Primary TTS failed (quota/rate limit), trying fallback: ${this.config.ttsFallbackProvider}`
+              `[discord-voice] Primary TTS failed (quota/rate limit), trying fallback: ${fallbackProvider}`
             );
             try {
-              resource = await this.tryGetResourceWithProvider(text, this.config.ttsFallbackProvider);
+              resource = await this.tryGetResourceWithProvider(text, fallbackProvider);
               if (resource) {
-                this.logger.info(`[discord-voice] Using fallback TTS: ${this.config.ttsFallbackProvider}`);
+                session.useFallbackTts = true;
+                this.logger.info(`[discord-voice] Using fallback TTS: ${fallbackProvider} (session will stay on fallback)`);
               }
             } catch (fbErr) {
               this.logger.warn(

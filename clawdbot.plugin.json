@@ -93,7 +93,16 @@
         "properties": {
           "apiKey": { "type": "string" },
           "whisperModel": { "type": "string", "default": "whisper-1" },
-          "ttsModel": { "type": "string", "default": "tts-1" }
+          "ttsModel": { "type": "string", "default": "tts-1" },
+          "voice": { "type": "string", "default": "nova", "description": "nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral" }
+        }
+      },
+      "kokoro": {
+        "type": "object",
+        "properties": {
+          "voice": { "type": "string", "default": "af_heart", "description": "af_heart, af_bella, af_nicole, etc." },
+          "modelId": { "type": "string" },
+          "dtype": { "type": "string", "enum": ["fp32", "fp16", "q8", "q4", "q4f16"], "default": "fp32" }
         }
       },
       "elevenlabs": {
@@ -101,7 +110,7 @@
         "properties": {
           "apiKey": { "type": "string" },
           "voiceId": { "type": "string" },
-          "modelId": { "type": "string", "default": "eleven_multilingual_v2", "description": "turbo, flash, v2, v3, or full model ID" }
+          "modelId": { "type": "string", "default": "eleven_turbo_v2_5", "description": "turbo, flash, v2, v3, or full model ID" }
         }
       },
       "deepgram": {
@@ -127,8 +136,16 @@
       "help": "Use 'openai' or 'elevenlabs'"
     },
     "ttsVoice": {
-      "label": "TTS Voice",
-      "help": "Voice ID for TTS (e.g., 'nova', 'alloy' for OpenAI)"
+      "label": "TTS Voice (deprecated)",
+      "help": "Use openai.voice, elevenlabs.voiceId, kokoro.voice instead"
+    },
+    "openai.voice": {
+      "label": "OpenAI TTS Voice",
+      "help": "nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral"
+    },
+    "kokoro.voice": {
+      "label": "Kokoro TTS Voice",
+      "help": "af_heart, af_bella, af_nicole, etc."
     },
     "vadSensitivity": {
       "label": "VAD Sensitivity",

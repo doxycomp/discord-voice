@@ -121,7 +121,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `sttProvider` | string | `"whisper"` | `"whisper"`, `"local-whisper"`, `"gpt4o-mini"`, `"gpt4o-transcribe"`, `"gpt4o-transcribe-diarize"` (OpenAI), or `"deepgram"` |
 | `streamingSTT` | boolean | `true` | Use streaming STT (Deepgram only, ~1s faster) |
 | `ttsProvider` | string | `"openai"` | `"openai"`, `"elevenlabs"`, or `"kokoro"` |
-| `ttsVoice` | string | `"nova"` | Voice ID for TTS |
+| `ttsVoice` | string | `"nova"` | Deprecated – use provider-specific: `openai.voice`, `elevenlabs.voiceId`, `kokoro.voice` |
 | `vadSensitivity` | string | `"medium"` | `"low"`, `"medium"`, or `"high"` |
 | `bargeIn` | boolean | `true` | Stop speaking when user talks |
 | `allowedUsers` | string[] | `[]` | User IDs allowed (empty = all) |
@@ -131,8 +131,8 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `autoJoinChannel` | string | `undefined` | Channel ID to auto-join on startup |
 | `openclawRoot` | string | `undefined` | OpenClaw package root if auto-detection fails |
 | `thinkingSound` | object | see [Thinking Sound](#thinking-sound) | Sound played while processing |
-| `noEmojiHint` | boolean \| string | `true` | Inject TTS hint: `true` = default text, `false` = off, `string` = custom text |
-| `ttsFallbackProvider` | string | `undefined` | Fallback when primary fails (quota/rate limit): `"openai"`, `"elevenlabs"`, or `"kokoro"` (free, local) |
+| `noEmojiHint` | boolean \| string | `true` | Inject TTS hint into agent prompt; when set, emojis are also stripped from responses before TTS (avoids Kokoro reading them aloud) |
+| `ttsFallbackProvider` | string | `undefined` | Fallback when primary fails (quota/rate limit): `"openai"`, `"elevenlabs"`, or `"kokoro"` (free, local). Once switched, the session stays on fallback until the bot leaves the channel. |
 
 ### Fallbacks from Main OpenClaw Config
 
@@ -156,7 +156,8 @@ The Discord bot token is always read from `channels.discord.token` (or `channels
   "openai": {
     "apiKey": "sk-...",
     "whisperModel": "whisper-1",     // or use sttProvider: "gpt4o-mini"
-    "ttsModel": "tts-1"
+    "ttsModel": "tts-1",
+    "voice": "nova"                  // nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral (default: nova)
   }
 }
 ```
@@ -168,14 +169,14 @@ OpenAI STT options: `whisper` (legacy), `gpt4o-mini` (faster, cheaper), `gpt4o-t
 {
   "elevenlabs": {
     "apiKey": "...",
-    "voiceId": "21m00Tcm4TlvDq8ikWAM",  // Rachel
+    "voiceId": "21m00Tcm4TlvDq8ikWAM",  // Rachel (ElevenLabs voice ID)
     "modelId": "turbo"  // turbo | flash | v2 | v3
   }
 }
 ```
-- `modelId: "turbo"` – eleven_turbo_v2_5 (fastest, lowest latency)
+- `modelId: "turbo"` – eleven_turbo_v2_5 (default, fastest, lowest latency)
 - `modelId: "flash"` – eleven_flash_v2_5 (fast)
-- `modelId: "v2"` – eleven_multilingual_v2 (default, balanced)
+- `modelId: "v2"` – eleven_multilingual_v2 (balanced)
 - `modelId: "v3"` – eleven_multilingual_v3 (most expressive)
 
 #### Deepgram (STT only)
@@ -206,13 +207,13 @@ No API key required. Runs locally using Xenova/Transformers.
 
 #### Kokoro (Local TTS) – Free
 
-No API key required. Runs locally on CPU. Use as primary or as `ttsFallbackProvider` when ElevenLabs/OpenAI hit quota limits.
+No API key required. Runs locally on CPU. Use as primary or as `ttsFallbackProvider` when ElevenLabs/OpenAI hit quota limits. With `noEmojiHint` enabled (default), emojis are stripped from responses before TTS so Kokoro does not try to read them aloud.
 
 ```json5
 {
   ttsProvider: "kokoro",
-  ttsVoice: "af_heart", // Options: af_heart, af_bella, af_nicole, etc.
   kokoro: {
+    voice: "af_heart",  // af_heart, af_bella, af_nicole, etc. (default: af_heart)
     modelId: "onnx-community/Kokoro-82M-v1.0-ONNX", // Optional
     dtype: "fp32", // Optional: "fp32", "q8", "q4"
   },
@@ -221,7 +222,7 @@ No API key required. Runs locally on CPU. Use as primary or as `ttsFallbackProvi
 
 #### TTS Fallback (quota / rate limit)
 
-When the primary TTS fails with quota exceeded or rate limit, a fallback provider can be used:
+When the primary TTS fails with quota exceeded or rate limit, a fallback provider can be used. Once switched to fallback, the session stays on the fallback provider until the bot leaves the voice channel, avoiding repeated failures on each response.
 
 ```json5
 {

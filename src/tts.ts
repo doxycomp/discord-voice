@@ -18,6 +18,14 @@ export interface TTSProvider {
   synthesize(text: string): Promise<TTSResult>;
 }
 
+/** Valid OpenAI TTS voice names (ttsVoice may be from Kokoro/ElevenLabs config) */
+const OPENAI_TTS_VOICES = ["nova", "shimmer", "echo", "onyx", "fable", "alloy", "ash", "sage", "coral"] as const;
+
+function resolveOpenAIVoice(configured: string | undefined): string {
+  const v = (configured || "nova").toLowerCase();
+  return OPENAI_TTS_VOICES.includes(v as (typeof OPENAI_TTS_VOICES)[number]) ? v : "nova";
+}
+
 /**
  * OpenAI TTS Provider
  */
@@ -29,7 +37,7 @@ export class OpenAITTS implements TTSProvider {
   constructor(config: DiscordVoiceConfig) {
     this.apiKey = config.openai?.apiKey || process.env.OPENAI_API_KEY || "";
     this.model = config.openai?.ttsModel || "tts-1";
-    this.voice = config.ttsVoice || "nova";
+    this.voice = resolveOpenAIVoice(config.openai?.voice);
 
     if (!this.apiKey) {
       throw new Error("OpenAI API key required for OpenAI TTS");
@@ -75,8 +83,8 @@ export class ElevenLabsTTS implements TTSProvider {
 
   constructor(config: DiscordVoiceConfig) {
     this.apiKey = config.elevenlabs?.apiKey || process.env.ELEVENLABS_API_KEY || "";
-    this.voiceId = config.elevenlabs?.voiceId || config.ttsVoice || "21m00Tcm4TlvDq8ikWAM"; // Default: Rachel
-    this.modelId = config.elevenlabs?.modelId || "eleven_multilingual_v2";
+    this.voiceId = config.elevenlabs?.voiceId || "21m00Tcm4TlvDq8ikWAM"; // Default: Rachel
+    this.modelId = config.elevenlabs?.modelId || "eleven_turbo_v2_5";
 
     if (!this.apiKey) {
       throw new Error("ElevenLabs API key required for ElevenLabs TTS");
@@ -130,7 +138,7 @@ export class KokoroTTSProvider implements TTSProvider {
   constructor(config: DiscordVoiceConfig) {
     this.modelId = config.kokoro?.modelId || "onnx-community/Kokoro-82M-v1.0-ONNX";
     this.dtype = config.kokoro?.dtype || "fp32";
-    this.voice = config.ttsVoice || "af_heart";
+    this.voice = config.kokoro?.voice ?? "af_heart";
   }
 
   private async ensureInitialized() {

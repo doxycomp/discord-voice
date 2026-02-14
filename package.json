@@ -27,6 +27,7 @@
     "@sinclair/typebox": "^0.34.48",
     "@xenova/transformers": "^2.17.2",
     "discord.js": "^14.16.3",
+    "emoji-regex": "^10.6.0",
     "kokoro-js": "^1.2.1",
     "libsodium-wrappers": "^0.7.15",
     "opusscript": "^0.0.8",
@@ -42,10 +43,14 @@
     "lint": "eslint src --ext .ts"
   },
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "clawdbot": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "peerDependencies": {
     "openclaw": ">=2025.0.0"
