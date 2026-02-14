@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import { Client, GatewayIntentBits, type VoiceBasedChannel, type GuildMember } from "discord.js";
 
-import { parseConfig, type DiscordVoiceConfig } from "./src/config.js";
+import { parseConfig, DEFAULT_NO_EMOJI_HINT, type DiscordVoiceConfig } from "./src/config.js";
 import { VoiceConnectionManager } from "./src/voice-connection.js";
 import { loadCoreAgentDeps, type CoreConfig } from "./src/core-bridge.js";
 
@@ -219,7 +219,13 @@ const discordVoicePlugin = {
         const identity = deps.resolveAgentIdentity(coreConfig, agentId);
         const agentName = identity?.name?.trim() || "assistant";
 
-        const extraSystemPrompt = `You are ${agentName}, speaking in a Discord voice channel. Keep responses brief and conversational (1-2 sentences max). Be natural and friendly. You have access to all your normal tools and skills. The user's Discord ID is ${userId}.`;
+        const noEmojiPart =
+          cfg.noEmojiHint === false
+            ? ""
+            : typeof cfg.noEmojiHint === "string"
+              ? ` ${cfg.noEmojiHint}`
+              : ` ${DEFAULT_NO_EMOJI_HINT}`;
+        const extraSystemPrompt = `You are ${agentName}, speaking in a Discord voice channel. Keep responses brief and conversational (1-2 sentences max). Be natural and friendly.${noEmojiPart} You have access to all your normal tools and skills. The user's Discord ID is ${userId}.`;
 
         const timeoutMs = deps.resolveAgentTimeoutMs({ cfg: coreConfig });
         const runId = `discord-voice:${guildId}:${Date.now()}`;

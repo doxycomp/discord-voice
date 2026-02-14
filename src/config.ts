@@ -37,6 +37,13 @@ export interface DiscordVoiceConfig {
   // LLM settings for voice responses (use fast models for low latency)
   model?: string; // e.g. "anthropic/claude-3-5-haiku-latest" or "openai/gpt-4o-mini"
   thinkLevel?: string; // "off", "low", "medium", "high" - lower = faster
+  /**
+   * Inject TTS-friendly hint into agent prompt.
+   * - `true` (default): use default text ("do not use emojis…")
+   * - `false`: do not inject
+   * - `string`: use this custom text
+   */
+  noEmojiHint?: boolean | string;
 
   openai?: {
     apiKey?: string;
@@ -82,6 +89,10 @@ export const DEFAULT_CONFIG: DiscordVoiceConfig = {
   // model: undefined - uses system default, recommend "anthropic/claude-3-5-haiku-latest" for speed
   // thinkLevel: undefined - defaults to "off" for voice (fastest)
 };
+
+/** Default text for noEmojiHint when true */
+export const DEFAULT_NO_EMOJI_HINT =
+  "Do not use emojis—your response will be read aloud by a TTS engine.";
 
 /** ElevenLabs model shorthands → full model IDs */
 export const ELEVENLABS_MODELS = {
@@ -263,6 +274,12 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
     })(),
     model,
     thinkLevel: typeof obj.thinkLevel === "string" ? obj.thinkLevel : undefined,
+    noEmojiHint: (() => {
+      if (obj.noEmojiHint === false) return false;
+      const s = obj.noEmojiHint;
+      if (typeof s === "string" && s.trim()) return s.trim();
+      return true;
+    })(),
     openai: (() => {
       const o = obj.openai && typeof obj.openai === "object" ? (obj.openai as Record<string, unknown>) : null;
       const apiKey = (o?.apiKey as string | undefined) || fallback.openaiApiKey;

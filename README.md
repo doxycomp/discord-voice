@@ -131,6 +131,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `autoJoinChannel` | string | `undefined` | Channel ID to auto-join on startup |
 | `openclawRoot` | string | `undefined` | OpenClaw package root if auto-detection fails |
 | `thinkingSound` | object | see [Thinking Sound](#thinking-sound) | Sound played while processing |
+| `noEmojiHint` | boolean \| string | `true` | Inject TTS hint: `true` = default text, `false` = off, `string` = custom text |
 
 ### Fallbacks from Main OpenClaw Config
 

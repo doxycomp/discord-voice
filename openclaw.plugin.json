@@ -50,6 +50,14 @@
         "default": "off",
         "description": "Thinking level for voice responses (lower = faster)"
       },
+      "noEmojiHint": {
+        "oneOf": [
+          { "type": "boolean" },
+          { "type": "string" }
+        ],
+        "default": true,
+        "description": "Inject TTS hint: true = default 'no emojis' text, false = off, string = custom text"
+      },
       "allowedUsers": {
         "type": "array",
         "items": { "type": "string" },
