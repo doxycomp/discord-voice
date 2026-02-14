@@ -24,6 +24,7 @@
   ],
   "dependencies": {
     "@discordjs/voice": "^0.18.0",
+    "@sinclair/typebox": "^0.34.48",
     "discord.js": "^14.16.3",
     "libsodium-wrappers": "^0.7.15",
     "opusscript": "^0.0.8",
@@ -44,7 +45,6 @@
     "openclaw": ">=2025.0.0"
   },
   "devDependencies": {
-    "@sinclair/typebox": "^0.34.48",
     "@types/node": "^25.0.10",
     "@types/ws": "^8.18.0",
     "typescript": "^5.9.3"

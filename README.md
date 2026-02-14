@@ -327,6 +327,15 @@ Example: if your `extensionAPI.js` is at `.../discord-voice/node_modules/opencla
 ### "Discord client not available"
 Ensure the Discord channel is configured and the bot is connected before using voice.
 
+### "Cannot find module structures/ClientUser" (discord.js)
+This can happen with a corrupted or incomplete install. In the plugin directory, run:
+```bash
+cd ~/.openclaw/extensions/discord-voice
+rm -rf node_modules package-lock.json
+npm install
+```
+Then restart the gateway.
+
 ### Opus/Sodium build errors
 Install build tools:
 ```bash
