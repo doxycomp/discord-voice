@@ -36,6 +36,7 @@ import { WaveFile } from "wavefile";
 
 import type { DiscordVoiceConfig } from "./config.js";
 import type { TTSResult } from "./tts.js";
+import type { STTResult } from "./stt.js";
 import { getVadThreshold } from "./config.js";
 
 import { SPEAK_COOLDOWN_VAD_MS, SPEAK_COOLDOWN_PROCESSING_MS, getRmsThreshold } from "./constants.js";
@@ -77,6 +78,27 @@ function isRetryableTtsError(error: unknown): boolean {
     /\b503\b/.test(msg)
   );
 }
+
+/** Detect STT errors that warrant trying a fallback (quota, rate limit, connection, Wyoming unreachable) */
+function isRetryableSttError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes("quota_exceeded") ||
+    lower.includes("rate limit") ||
+    lower.includes("rate_limit") ||
+    /\b401\b/.test(msg) ||
+    /\b429\b/.test(msg) ||
+    /\b503\b/.test(msg) ||
+    lower.includes("econnrefused") ||
+    lower.includes("econnreset") ||
+    lower.includes("etimedout") ||
+    lower.includes("connection") ||
+    lower.includes("timeout") ||
+    lower.includes("unreachable") ||
+    lower.includes("wyoming")
+  );
+}
 import { StreamingSTTManager, createStreamingSTTProvider } from "./streaming-stt.js";
 import { createStreamingTTSProvider, type StreamingTTSProvider } from "./streaming-tts.js";
 
@@ -113,6 +135,8 @@ export interface VoiceSession {
   reconnecting?: boolean;
   /** Fallback TTS provider to use for rest of session (set after primary fails with quota/rate limit) */
   fallbackTtsProvider?: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge";
+  /** Fallback STT provider to use for rest of session (set after primary fails) */
+  fallbackSttProvider?: "whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram" | "local-whisper" | "wyoming-whisper";
 }
 
 export class VoiceConnectionManager {
@@ -673,8 +697,37 @@ export class VoiceConnectionManager {
     this.logger.info(`[discord-voice] Processing ${Math.round(durationMs)}ms of audio (RMS: ${Math.round(rms)}) from user ${userId}`);
 
     try {
-      let transcribedText: string;
+      let transcribedText = "";
+      const fallbackList = this.config.sttFallbackProviders ?? [];
 
+      const tryFallbacks = async (): Promise<string> => {
+        for (const provider of fallbackList) {
+          try {
+            const r = await this.tryTranscribeWithProvider(audioBuffer, 48000, provider);
+            if (r.text?.trim()) {
+              session.fallbackSttProvider = provider;
+              this.logger.info(`[discord-voice] Using fallback STT: ${provider} (session will stay on fallback)`);
+              return r.text;
+            }
+          } catch (fbErr) {
+            this.logger.warn(`[discord-voice] Fallback STT ${provider} failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+          }
+        }
+        return "";
+      };
+
+      if (session.fallbackSttProvider) {
+        try {
+          const r = await this.tryTranscribeWithProvider(audioBuffer, 48000, session.fallbackSttProvider);
+          transcribedText = r.text ?? "";
+          if (!transcribedText?.trim()) session.fallbackSttProvider = undefined;
+        } catch (fbErr) {
+          this.logger.warn(`[discord-voice] Session fallback STT failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+          session.fallbackSttProvider = undefined;
+        }
+      }
+
+      if (!transcribedText) {
       // Check if we have streaming transcript available
       if (this.streamingSTT && this.config.sttProvider === "deepgram" && this.config.streamingSTT) {
         // Get accumulated transcript from streaming session
@@ -683,15 +736,29 @@ export class VoiceConnectionManager {
         // Fallback to batch if streaming didn't capture anything
         if (!transcribedText || transcribedText.trim().length === 0) {
           this.logger.debug?.(`[discord-voice] Streaming empty, falling back to batch STT`);
-          const sttResult = await this.sttProvider.transcribe(audioBuffer, 48000);
-          transcribedText = sttResult.text;
+            try {
+              const r = await this.sttProvider.transcribe(audioBuffer, 48000);
+              transcribedText = r.text ?? "";
+            } catch (batchErr) {
+              if (fallbackList.length > 0 && isRetryableSttError(batchErr)) {
+                this.logger.warn(`[discord-voice] Primary STT failed, trying fallbacks: [${fallbackList.join(", ")}]`);
+                transcribedText = await tryFallbacks();
+              } else throw batchErr;
+            }
         }
       } else {
-        // Batch transcription
-        const sttResult = await this.sttProvider.transcribe(audioBuffer, 48000);
-        transcribedText = sttResult.text;
+        try {
+          const r = await this.sttProvider.transcribe(audioBuffer, 48000);
+          transcribedText = r.text ?? "";
+        } catch (batchErr) {
+          if (fallbackList.length > 0 && isRetryableSttError(batchErr)) {
+            this.logger.warn(`[discord-voice] Primary STT failed, trying fallbacks: [${fallbackList.join(", ")}]`);
+            transcribedText = await tryFallbacks();
+          } else throw batchErr;
+        }
+        }
       }
-      
+
       if (!transcribedText || transcribedText.trim().length === 0) {
         this.logger.debug?.(`[discord-voice] Empty transcription for user ${userId}`);
         session.processing = false;
@@ -731,6 +798,19 @@ export class VoiceConnectionManager {
     } finally {
       session.processing = false;
     }
+  }
+
+  /**
+   * Try to transcribe using a specific STT provider (for fallback)
+   */
+  private async tryTranscribeWithProvider(
+    audioBuffer: Buffer,
+    sampleRate: number,
+    provider: "whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram" | "local-whisper" | "wyoming-whisper"
+  ): Promise<STTResult> {
+    const overrideConfig = { ...this.config, sttProvider: provider };
+    const stt = createSTTProvider(overrideConfig);
+    return stt.transcribe(audioBuffer, sampleRate);
   }
 
   /**

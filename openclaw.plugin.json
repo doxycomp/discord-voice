@@ -16,6 +16,16 @@
         "default": "whisper",
         "description": "whisper, gpt4o-*, deepgram, local-whisper, or wyoming-whisper (remote Wyoming Faster Whisper)"
       },
+      "sttFallbackProvider": {
+        "type": "string",
+        "enum": ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"],
+        "description": "Single fallback STT (legacy). Prefer sttFallbackProviders for multiple fallbacks."
+      },
+      "sttFallbackProviders": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"] },
+        "description": "Fallback STT providers when primary fails (quota, rate limit, Wyoming unreachable)"
+      },
       "streamingSTT": {
         "type": "boolean",
         "default": true,

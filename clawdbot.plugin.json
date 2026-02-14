@@ -15,6 +15,11 @@
         "enum": ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"],
         "default": "whisper"
       },
+      "sttFallbackProviders": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"] },
+        "description": "Fallback STT when primary fails (quota, rate limit, Wyoming unreachable)"
+      },
       "streamingSTT": {
         "type": "boolean",
         "default": true,

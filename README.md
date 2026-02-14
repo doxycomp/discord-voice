@@ -119,6 +119,8 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable the plugin |
 | `sttProvider` | string | `"whisper"` | `"whisper"`, `"local-whisper"`, `"wyoming-whisper"`, `"gpt4o-mini"`, `"gpt4o-transcribe"`, `"gpt4o-transcribe-diarize"` (OpenAI), or `"deepgram"` |
+| `sttFallbackProvider` | string | `undefined` | Single fallback (legacy). Prefer `sttFallbackProviders`. |
+| `sttFallbackProviders` | string[] | `undefined` | Fallback STT when primary fails (quota, rate limit, Wyoming unreachable). E.g. `["local-whisper", "wyoming-whisper"]`. |
 | `streamingSTT` | boolean | `true` | Use streaming STT (Deepgram only, ~1s faster) |
 | `ttsProvider` | string | `"openai"` | `"openai"`, `"elevenlabs"`, `"deepgram"`, `"polly"`, `"edge"`, or `"kokoro"` |
 | `ttsVoice` | string | `"nova"` | Deprecated – use provider-specific: `openai.voice`, `elevenlabs.voiceId`, `kokoro.voice` |
@@ -300,6 +302,18 @@ When the primary TTS fails with quota exceeded or rate limit, fallback providers
   ttsProvider: "elevenlabs",
   ttsFallbackProvider: "kokoro",
   elevenlabs: { apiKey: "...", voiceId: "...", modelId: "turbo" },
+}
+```
+
+#### STT Fallback (quota / rate limit / unreachable)
+
+When the primary STT fails (quota, rate limit, or Wyoming unreachable), fallback providers are tried in order. Once one succeeds, the session stays on it until the bot leaves the voice channel.
+
+```json5
+{
+  sttProvider: "wyoming-whisper",
+  sttFallbackProviders: ["local-whisper", "whisper"],
+  wyomingWhisper: { host: "192.168.1.10", port: 10300 },
 }
 ```
 

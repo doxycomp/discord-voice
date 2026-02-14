@@ -12,6 +12,8 @@ export interface VoiceCallTtsConfig {
 export interface DiscordVoiceConfig {
   enabled: boolean;
   sttProvider: "whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram" | "local-whisper" | "wyoming-whisper";
+  /** Fallback STT providers when primary fails (quota, rate limit, unreachable), tried in order */
+  sttFallbackProviders?: readonly ("whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram" | "local-whisper" | "wyoming-whisper")[];
   streamingSTT: boolean; // Use streaming STT (Deepgram only) for lower latency
   ttsProvider: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge";
   ttsVoice: string;
@@ -276,6 +278,28 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
                   ? "wyoming-whisper"
                   : "whisper",
     streamingSTT: typeof obj.streamingSTT === "boolean" ? obj.streamingSTT : DEFAULT_CONFIG.streamingSTT,
+    sttFallbackProviders: (() => {
+      const valid = ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"] as const;
+      const primary = obj.sttProvider as (typeof valid)[number];
+      const excludePrimary = (p: string) => p !== primary;
+      const toProvider = (p: string): (typeof valid)[number] | null =>
+        valid.includes(p as (typeof valid)[number]) ? (p as (typeof valid)[number]) : null;
+
+      const arr = obj.sttFallbackProviders;
+      if (Array.isArray(arr) && arr.length > 0) {
+        const list = arr
+          .filter((x): x is string => typeof x === "string")
+          .map(toProvider)
+          .filter((x): x is (typeof valid)[number] => x !== null)
+          .filter(excludePrimary);
+        return list.length > 0 ? list : undefined;
+      }
+      const fb = obj.sttFallbackProvider;
+      if (typeof fb === "string" && valid.includes(fb as (typeof valid)[number]) && fb !== primary) {
+        return [fb as (typeof valid)[number]];
+      }
+      return undefined;
+    })(),
     ttsProvider: (["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"].includes(obj.ttsProvider as string)
       ? obj.ttsProvider
       : ttsProviderRaw) as "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge",
