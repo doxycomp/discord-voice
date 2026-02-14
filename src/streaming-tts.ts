@@ -156,13 +156,17 @@ export class ElevenLabsStreamingTTS implements StreamingTTSProvider {
 }
 
 /**
- * Create streaming TTS provider based on config
+ * Create streaming TTS provider based on config.
+ * Returns null for Kokoro (no streaming support) – use batch TTS directly.
  */
-export function createStreamingTTSProvider(config: DiscordVoiceConfig): StreamingTTSProvider {
+export function createStreamingTTSProvider(config: DiscordVoiceConfig): StreamingTTSProvider | null {
   switch (config.ttsProvider) {
     case "elevenlabs":
       return new ElevenLabsStreamingTTS(config);
     case "openai":
+      return new OpenAIStreamingTTS(config);
+    case "kokoro":
+      return null; // Kokoro has no streaming – batch TTS used directly
     default:
       return new OpenAIStreamingTTS(config);
   }

@@ -63,7 +63,7 @@ openclaw plugins install ./path/to/discord-voice
           ttsVoice: "nova",
           vadSensitivity: "medium",
           allowedUsers: [], // Empty = allow all users
-          silenceThresholdMs: 1500,
+          silenceThresholdMs: 800,
           maxRecordingMs: 30000,
           openai: {
             apiKey: "sk-...", // Or use OPENAI_API_KEY env var
@@ -125,7 +125,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `vadSensitivity` | string | `"medium"` | `"low"`, `"medium"`, or `"high"` |
 | `bargeIn` | boolean | `true` | Stop speaking when user talks |
 | `allowedUsers` | string[] | `[]` | User IDs allowed (empty = all) |
-| `silenceThresholdMs` | number | `1500` | Silence before processing (ms) |
+| `silenceThresholdMs` | number | `800` | Silence before processing (ms); lower = snappier |
 | `maxRecordingMs` | number | `30000` | Max recording length (ms) |
 | `heartbeatIntervalMs` | number | `30000` | Connection health check interval |
 | `autoJoinChannel` | string | `undefined` | Channel ID to auto-join on startup |
@@ -308,7 +308,8 @@ While the bot processes speech and generates a response, it can play a short loo
   "thinkingSound": {
     "enabled": true,
     "path": "assets/thinking.mp3",
-    "volume": 0.7
+    "volume": 0.7,
+    "stopDelayMs": 50
   }
 }
 ```
@@ -316,6 +317,7 @@ While the bot processes speech and generates a response, it can play a short loo
 - `enabled`: `true` by default. Set to `false` to disable.
 - `path`: Path to MP3 (relative to plugin root or absolute). Default `assets/thinking.mp3`.
 - `volume`: 0–1, default `0.7`.
+- `stopDelayMs`: Delay (ms) after stopping thinking sound before playing response. Default `50`. Range 0–500. Lower = snappier.
 
 If the file is missing, no sound is played. Any short ambient or notification MP3 works (e.g. 2–5 seconds, looped).
 

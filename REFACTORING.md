@@ -1,141 +1,180 @@
 # Refactoring Plan: Discord Voice Plugin
 
-> Initialisiert für strukturiertes Refactoring am 13.02.2025
+> Initialized 2025-02-13, updated after Merge PR #2 (optimize/refactor)
 
-## Projektübersicht
+## Project Overview
 
-**discord-voice** ist ein Clawdbot-Plugin für Echtzeit-Sprachunterhaltungen in Discord-Voice-Channels:
-- VAD (Voice Activity Detection), STT (Whisper/Deepgram), TTS (OpenAI/ElevenLabs)
-- Streaming STT/TTS, Barge-in, Auto-Reconnect, Heartbeat-Monitoring
+**discord-voice** is an OpenClaw plugin for real-time voice conversations in Discord voice channels:
 
----
-
-## Codebase-Analyse
-
-### Dateistruktur & LOC (ca.)
-
-| Datei | LOC | Rolle |
-|-------|-----|-------|
-| `index.ts` | ~430 | Plugin-Entry, Gateway, Tool, CLI, `handleTranscript` |
-| `src/voice-connection.ts` | ~680 | VoiceManager: Join/Leave, Recording, Playback, Heartbeat |
-| `src/stt.ts` | ~170 | Batch STT (Whisper, Deepgram) |
-| `src/tts.ts` | ~130 | Batch TTS (OpenAI, ElevenLabs) |
-| `src/streaming-stt.ts` | ~390 | Deepgram Streaming STT + Manager |
-| `src/streaming-tts.ts` | ~225 | Streaming TTS (OpenAI, ElevenLabs) |
-| `src/config.ts` | ~145 | Config-Parsing, VAD-Thresholds |
-| `src/core-bridge.ts` | ~195 | Dynamischer Import zu Clawdbot Core |
-
-**Gesamt:** ~2.400 LOC
+- **STT:** Whisper API, Deepgram (incl. streaming), Local Whisper (Xenova), OpenAI Transcribe (gpt4o-mini/transcribe/diarize)
+- **TTS:** OpenAI, ElevenLabs, Kokoro (local)
+- **Features:** VAD, streaming STT/TTS, barge-in, auto-reconnect, heartbeat, thinking sound
 
 ---
 
-## Identifizierte Probleme
+## Codebase Analysis
 
-### 1. Monolithische Dateien
+### File Structure & LOC (as of optimize/refactor)
 
-- **index.ts**: Gateway-Handler, Tool-Logik, CLI, Discord-Client, `handleTranscript`, Session-Setup – alles in einer Datei
-- **voice-connection.ts**: Recording, Playback, Heartbeat, Reconnect, Thinking-Sound, RMS-Berechnung – zu viele Verantwortlichkeiten
+| File | LOC | Role |
+|------|-----|------|
+| `index.ts` | ~555 | Plugin entry, gateway, tool, CLI, `handleTranscript` |
+| `src/voice-connection.ts` | ~905 | VoiceManager: join/leave, recording, playback, heartbeat |
+| `src/stt.ts` | ~350 | STT providers (Whisper, Deepgram, Local Whisper, OpenAI Transcribe) |
+| `src/tts.ts` | ~210 | TTS providers (OpenAI, ElevenLabs, Kokoro) |
+| `src/streaming-stt.ts` | ~415 | Deepgram streaming STT + manager |
+| `src/streaming-tts.ts` | ~225 | Streaming TTS (OpenAI, ElevenLabs; Kokoro not supported) |
+| `src/config.ts` | ~330 | Config parsing, VAD/RMS thresholds |
+| `src/core-bridge.ts` | ~195 | Dynamic import to OpenClaw core |
+| `src/constants.ts` | ~22 | Cooldowns, RMS thresholds |
 
-### 2. Code-Duplikation
+**Total:** ~3,200 LOC
 
-- **Session/Guild-Resolving** wiederholt in Gateway-Methoden und Tool:
+---
+
+## Voice Pipeline & Latency (Snappy)
+
+To make Discord Voice feel responsive and natural, these areas matter:
+
+### Latency Chain (user speaks → bot responds)
+
+1. **After speech ends** – `silenceThresholdMs` (default 800 ms) wait before processing
+2. **STT** – Deepgram streaming (~1 s faster than batch), local Whisper is CPU-bound
+3. **Agent** – Model choice, `thinkLevel` (default "off" for voice)
+4. **TTS** – Streaming (OpenAI/ElevenLabs) vs batch (Kokoro)
+5. **Playback** – Thinking sound stop + configurable delay before response
+
+### Current Configuration (latency-friendly)
+
+| Option | Default | Note |
+|--------|---------|------|
+| `silenceThresholdMs` | 800 | Lower (e.g. 500–800 ms) for faster response |
+| `minAudioMs` | 300 | Too low → noise; too high → delayed response |
+| `streamingSTT` | true | Use Deepgram streaming |
+| `thinkLevel` | "off" | Faster agent responses |
+| `sttProvider` | whisper | Deepgram + streaming recommended for low latency |
+
+### Known Latency Considerations
+
+- **Kokoro:** No streaming TTS → higher time-to-first-audio than OpenAI/ElevenLabs (unavoidable)
+
+---
+
+## Identified Issues
+
+### 1. Monolithic Files
+
+- **index.ts:** Gateway handlers, tool logic, CLI, Discord client, `handleTranscript`, session setup – all in one file
+- **voice-connection.ts:** Recording, playback, heartbeat, reconnect, thinking sound, RMS – too many responsibilities
+
+### 2. Code Duplication
+
+- **Session/guild resolution** repeated in gateway methods and tool:
   ```ts
-  // 4x ähnlich: wenn kein guildId → sessions[0].guildId
   if (!guildId) {
     const sessions = vm.getAllSessions();
     guildId = sessions[0]?.guildId;
   }
   ```
-- **Channel-Validierung** in Gateway und Tool identisch
-- **getRmsThreshold** in `voice-connection.ts` vs. **getVadThreshold** in `config.ts` (ähnliche Semantik, unterschiedliche Werte)
+- **Channel validation** identical in gateway and tool
+- **getRmsThreshold** (constants) vs **getVadThreshold** (config) – similar semantics, different scales
 
-### 3. Magic Numbers & Konstanten
+### 3. Magic Numbers & Constants
 
-- `SPEAK_COOLDOWN_MS`: 800 (VAD-Ignore) vs. 500 (Processing-Skip)
-- `minAudioMs`, `silenceThresholdMs` – Defaults teils in config, teils hardcoded
-- Kein zentraler Ort für Cooldown/Threshold-Werte
+- `SPEAK_COOLDOWN_VAD_MS` (800) vs `SPEAK_COOLDOWN_PROCESSING_MS` (500)
+- `minAudioMs`, `silenceThresholdMs` – defaults partly in config, partly hardcoded
+- Thinking sound delay now configurable via `stopDelayMs`
 
-### 4. Dead Code
+### 4. Logging Inconsistency
 
-- `playThinkingSoundSimple()` in `voice-connection.ts` wird nie aufgerufen (nur `startThinkingLoop` genutzt)
+- `streaming-stt.ts`: Logger injected ✅
+- `index.ts` CLI: `console.log` / `console.error` (CLI context)
+- `api.logger` not passed through everywhere
 
-### 5. Logging-Inkonsistenz
+### 5. Types & Casts
 
-- `streaming-stt.ts`: `console.log` / `console.error` statt Logger
-- `index.ts` CLI: `console.log` / `console.error` (CLI-Kontext, aber ohne einheitliches Format)
-- `api.logger` wird nicht überall durchgereicht
-
-### 6. Typen & Casts
-
-- Mehrfach `as VoiceBasedChannel`, `as { guildId?: string }`, etc.
+- Multiple `as VoiceBasedChannel`, `as { guildId?: string }`
 - `any` in CLI: `const prog = program as any`
-- Fehlende shared Types für Gateway-Params / Tool-Params
+- Missing shared types for gateway params / tool params
 
-### 7. Fehlende Infrastruktur
+### 6. Infrastructure
 
-- Keine Tests
-- Kein ESLint/Prettier
-- Kein `npm run typecheck` (nur implizit über IDE/tsc)
-- `assets/thinking.mp3` referenziert, aber nicht im Repo
+- Smoke test present ✅ (incl. Local Whisper, Kokoro)
+- `npm run typecheck` ✅
+- No unit tests
+- No ESLint/Prettier
+- `assets/thinking.mp3` referenced but not in repo
 
-### 8. Abhängigkeiten & Schnittstellen
+### 7. Dependencies & Interfaces
 
-- `core-bridge.ts` importiert aus `dist/` – Plugin benötigt gebautes Clawdbot
-- `PluginApi`-Interface nur lokal in `index.ts` definiert
+- `core-bridge.ts` imports from `dist/` – plugin requires built OpenClaw
+- `PluginApi` interface only defined locally in `index.ts`
 
 ---
 
-## Refactoring-Backlog (priorisiert)
+## Refactoring Backlog (Prioritized)
 
-### Phase 1: Grundlagen (schnelle Wins) ✅
+### Phase 0: Voice Pipeline Latency ✅
 
-1. [x] **Konstanten zentralisieren** – `src/constants.ts` für Cooldowns, Thresholds
-2. [x] **Dead Code entfernen** – `playThinkingSoundSimple` löschen
-3. [x] **Logging vereinheitlichen** – Logger in `StreamingSTTManager` injizieren, `console.*` ersetzen
-4. [x] **Typecheck-Script** – `npm run typecheck` in `package.json`
-5. [x] **Assets dokumentieren** – README/Config für `assets/thinking.mp3`
+0. [x] **Kokoro in createStreamingTTSProvider** – Return null for `ttsProvider: "kokoro"`, direct fallback to batch
+1. [x] **silenceThresholdMs optimization** – Default reduced to 800 ms
+2. [x] **Thinking sound delay** – `stopDelayMs` in thinkingSound config (default 50 ms, range 0–500 ms)
 
-### Phase 2: Modularisierung
+### Phase 1: Foundations ✅
 
-6. [ ] **index.ts aufteilen**:
-   - `src/plugin/register.ts` – Plugin-Registration
-   - `src/plugin/gateway.ts` – Gateway-Methoden
-   - `src/plugin/tool.ts` – Agent-Tool
-   - `src/plugin/cli.ts` – CLI-Commands
-   - `src/plugin/transcript-handler.ts` – `handleTranscript` + Session-Logik
-7. [ ] **voice-connection.ts aufteilen**:
-   - `src/voice/connection-manager.ts` – Join/Leave, Sessions
+1. [x] **Centralize constants** – `src/constants.ts`
+2. [x] **Remove dead code** – `playThinkingSoundSimple` deleted
+3. [x] **Unify logging** – Logger injected into StreamingSTTManager
+4. [x] **Typecheck script** – `npm run typecheck`
+5. [x] **Document assets** – README/config for `assets/thinking.mp3`
+
+### Phase 2: Modularization
+
+6. [ ] **Split index.ts**:
+   - `src/plugin/register.ts` – Plugin registration
+   - `src/plugin/gateway.ts` – Gateway methods
+   - `src/plugin/tool.ts` – Agent tool
+   - `src/plugin/cli.ts` – CLI commands
+   - `src/plugin/transcript-handler.ts` – `handleTranscript` + session logic
+7. [ ] **Split voice-connection.ts**:
+   - `src/voice/connection-manager.ts` – Join/leave, sessions
    - `src/voice/recording.ts` – UserAudioState, startRecording, processRecording
-   - `src/voice/playback.ts` – speak, stopSpeaking, thinking-loop
-   - `src/voice/heartbeat.ts` – Heartbeat + Reconnect-Logik
-8. [ ] **Gemeinsame Helpers** – `resolveGuildFromSessions`, `validateVoiceChannel` in `src/utils/`
+   - `src/voice/playback.ts` – speak, stopSpeaking, thinking loop
+   - `src/voice/heartbeat.ts` – Heartbeat + reconnect
+8. [ ] **Shared helpers** – `resolveGuildFromSessions`, `validateVoiceChannel` in `src/utils/`
 
-### Phase 3: Robustheit & Tests
+### Phase 3: Robustness & Tests
 
-9. [ ] **ESLint + Prettier** – Konfiguration für Projekt
-10. [ ] **Shared Types** – `types.ts` für Gateway-Params, Tool-Params, PluginApi
-11. [ ] **Unit-Tests** – mind. für config, stt, tts (ohne Netzwerk)
-12. [ ] **Integration-Tests** (optional) – mit Mocks für Discord/APIs
+9. [ ] **ESLint + Prettier** – Project configuration
+10. [ ] **Shared types** – `types.ts` for gateway params, tool params, PluginApi
+11. [ ] **Unit tests** – At least for config, stt, tts (no network)
+12. [ ] **Integration tests** (optional) – With mocks for Discord/APIs
 
 ### Phase 4: Optional
 
-13. [ ] **Provider-Factory** – einheitliche Factory für STT/TTS (inkl. Streaming)
-14. [ ] **Dependency Injection** – Logger, Config als explizite Abhängigkeiten
-15. [ ] **Docs** – JSDoc/TSDoc für öffentliche APIs
+13. [ ] **Provider factory** – Unified factory for STT/TTS (incl. streaming)
+14. [ ] **Dependency injection** – Logger, config as explicit dependencies
+15. [ ] **Docs** – JSDoc/TSDoc for public APIs
 
 ---
 
-## Schnellbefehle
+## Quick Commands
 
 ```bash
-# Typecheck (vor/nach Refactoring)
+# Typecheck (before/after refactoring)
 npm run typecheck
+
+# Smoke test (incl. Local Whisper, Kokoro)
+npm run smoke-test
+
+# Build
+npm run build
 ```
 
 ---
 
-## Nächste Schritte
+## Next Steps
 
-1. Phase-1-Tasks abarbeiten (1–5)
-2. Danach Phase 2 in kleinen, rückwärtskompatiblen Schritten
-3. Vor größeren Änderungen: `npm run typecheck` sicherstellen
+1. **Phase 0** done – Kokoro streaming fix, silenceThresholdMs, thinking delay
+2. Then Phase 2 in small, backward-compatible steps
+3. Before larger changes: ensure `npm run typecheck` and `npm run smoke-test` pass

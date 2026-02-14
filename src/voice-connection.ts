@@ -669,7 +669,10 @@ export class VoiceConnectionManager {
       } finally {
         // Always stop thinking sound, even on error
         stopThinking();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        const delayMs = this.config.thinkingSound?.stopDelayMs ?? 50;
+        if (delayMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
       }
       
       if (!response || response.trim().length === 0) {

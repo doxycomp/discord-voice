@@ -31,6 +31,7 @@ export interface DiscordVoiceConfig {
     enabled?: boolean;
     path?: string;   // default: "assets/thinking.mp3"
     volume?: number; // 0–1, default 0.7
+    stopDelayMs?: number; // delay after stopping before response (default 50, was 100)
   };
 
   // LLM settings for voice responses (use fast models for low latency)
@@ -74,7 +75,7 @@ export const DEFAULT_CONFIG: DiscordVoiceConfig = {
   vadSensitivity: "medium",
   bargeIn: true, // Enable barge-in by default
   allowedUsers: [],
-  silenceThresholdMs: 1000, // 1 second - faster response after speech ends
+  silenceThresholdMs: 800,  // 800ms - snappy response after speech ends
   minAudioMs: 300, // 300ms minimum - filter very short noise
   maxRecordingMs: 30000,
   heartbeatIntervalMs: 30000,
@@ -234,10 +235,18 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
     allowedUsers: Array.isArray(obj.allowedUsers)
       ? obj.allowedUsers.filter((u): u is string => typeof u === "string")
       : [],
-    silenceThresholdMs:
-      typeof obj.silenceThresholdMs === "number" ? obj.silenceThresholdMs : DEFAULT_CONFIG.silenceThresholdMs,
-    minAudioMs: typeof obj.minAudioMs === "number" ? obj.minAudioMs : DEFAULT_CONFIG.minAudioMs,
-    maxRecordingMs: typeof obj.maxRecordingMs === "number" ? obj.maxRecordingMs : DEFAULT_CONFIG.maxRecordingMs,
+    silenceThresholdMs: (() => {
+      const v = typeof obj.silenceThresholdMs === "number" ? obj.silenceThresholdMs : DEFAULT_CONFIG.silenceThresholdMs;
+      return v >= 0 ? v : DEFAULT_CONFIG.silenceThresholdMs;
+    })(),
+    minAudioMs: (() => {
+      const v = typeof obj.minAudioMs === "number" ? obj.minAudioMs : DEFAULT_CONFIG.minAudioMs;
+      return v >= 0 ? v : DEFAULT_CONFIG.minAudioMs;
+    })(),
+    maxRecordingMs: (() => {
+      const v = typeof obj.maxRecordingMs === "number" ? obj.maxRecordingMs : DEFAULT_CONFIG.maxRecordingMs;
+      return v >= 0 ? v : DEFAULT_CONFIG.maxRecordingMs;
+    })(),
     autoJoinChannel:
       typeof obj.autoJoinChannel === "string" && obj.autoJoinChannel.trim()
         ? obj.autoJoinChannel.trim()
@@ -246,10 +255,12 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       typeof obj.openclawRoot === "string" && obj.openclawRoot.trim()
         ? obj.openclawRoot.trim()
         : undefined,
-    heartbeatIntervalMs:
-      typeof obj.heartbeatIntervalMs === "number"
-        ? obj.heartbeatIntervalMs
-        : DEFAULT_CONFIG.heartbeatIntervalMs,
+    heartbeatIntervalMs: (() => {
+      const v =
+        typeof obj.heartbeatIntervalMs === "number" ? obj.heartbeatIntervalMs : DEFAULT_CONFIG.heartbeatIntervalMs;
+      const def = DEFAULT_CONFIG.heartbeatIntervalMs ?? 30_000;
+      return typeof v === "number" && v >= 0 ? v : def;
+    })(),
     model,
     thinkLevel: typeof obj.thinkLevel === "string" ? obj.thinkLevel : undefined,
     openai: (() => {
@@ -302,12 +313,14 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
         : undefined,
     thinkingSound: (() => {
       const t = obj.thinkingSound && typeof obj.thinkingSound === "object" ? (obj.thinkingSound as Record<string, unknown>) : null;
-      if (!t) return { enabled: true, path: "assets/thinking.mp3", volume: 0.7 };
+      if (!t) return { enabled: true, path: "assets/thinking.mp3", volume: 0.7, stopDelayMs: 50 };
       const enabled = "enabled" in t ? t.enabled !== false : true;
       const path = typeof t.path === "string" && t.path.trim() ? t.path.trim() : "assets/thinking.mp3";
       let volume = 0.7;
       if (typeof t.volume === "number" && t.volume >= 0 && t.volume <= 1) volume = t.volume;
-      return { enabled, path, volume };
+      let stopDelayMs = 50;
+      if (typeof t.stopDelayMs === "number" && t.stopDelayMs >= 0 && t.stopDelayMs <= 500) stopDelayMs = t.stopDelayMs;
+      return { enabled, path, volume, stopDelayMs };
     })(),
   };
 }
