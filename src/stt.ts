@@ -347,7 +347,7 @@ export class WyomingWhisperSTT implements STTProvider {
     this.host = ww.host ?? "127.0.0.1";
     this.port = ww.port ?? 10300;
     this.language = typeof ww.language === "string" && ww.language.trim() ? ww.language.trim() : undefined;
-    this.connectTimeoutMs = typeof ww.connectTimeoutMs === "number" && ww.connectTimeoutMs > 0 ? ww.connectTimeoutMs : 10000;
+    this.connectTimeoutMs = typeof ww.connectTimeoutMs === "number" && ww.connectTimeoutMs > 0 ? ww.connectTimeoutMs : 60000;
   }
 
   async transcribe(audioBuffer: Buffer, sampleRate: number): Promise<STTResult> {
