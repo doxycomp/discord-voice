@@ -23,9 +23,9 @@
       },
       "ttsProvider": {
         "type": "string",
-        "enum": ["openai", "elevenlabs", "kokoro"],
+        "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro"],
         "default": "openai",
-        "description": "openai, elevenlabs, or kokoro (free local)"
+        "description": "openai, elevenlabs, deepgram, polly, edge (free), or kokoro (free local)"
       },
       "ttsVoice": {
         "type": "string",
@@ -61,8 +61,13 @@
       },
       "ttsFallbackProvider": {
         "type": "string",
-        "enum": ["openai", "elevenlabs", "kokoro"],
-        "description": "Fallback TTS when primary fails (quota/rate limit). E.g. kokoro for free local fallback"
+        "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro"],
+        "description": "Single fallback TTS (legacy). Prefer ttsFallbackProviders for multiple fallbacks."
+      },
+      "ttsFallbackProviders": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro"] },
+        "description": "Fallback TTS providers tried in order when primary fails (quota/rate limit)"
       },
       "allowedUsers": {
         "type": "array",
@@ -102,6 +107,29 @@
           "voice": { "type": "string", "default": "nova", "description": "nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral" }
         }
       },
+      "polly": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string", "default": "us-east-1" },
+          "voiceId": { "type": "string", "default": "Joanna" },
+          "engine": { "type": "string", "enum": ["standard", "neural", "long-form", "generative"] },
+          "accessKeyId": { "type": "string" },
+          "secretAccessKey": { "type": "string" }
+        }
+      },
+      "edge": {
+        "type": "object",
+        "properties": {
+          "voice": { "type": "string", "default": "de-DE-KatjaNeural", "description": "Edge neural voice (e.g. de-DE-KatjaNeural, en-US-MichelleNeural)" },
+          "lang": { "type": "string", "default": "de-DE", "description": "Language code (e.g. de-DE, en-US)" },
+          "outputFormat": { "type": "string", "default": "webm-24khz-16bit-mono-opus", "description": "Output format for Discord" },
+          "rate": { "type": "string", "description": "Speech rate (e.g. +10%, -5%)" },
+          "pitch": { "type": "string", "description": "Pitch (e.g. +10%, -5%)" },
+          "volume": { "type": "string", "description": "Volume (e.g. +10%, -5%)" },
+          "proxy": { "type": "string", "description": "Proxy URL for requests" },
+          "timeoutMs": { "type": "number", "description": "Request timeout in ms" }
+        }
+      },
       "kokoro": {
         "type": "object",
         "properties": {
@@ -126,7 +154,8 @@
         "type": "object",
         "properties": {
           "apiKey": { "type": "string" },
-          "model": { "type": "string", "default": "nova-2" }
+          "model": { "type": "string", "default": "nova-2" },
+          "ttsModel": { "type": "string", "default": "aura-asteria-en", "description": "TTS model: aura-asteria-en, aura-2-thalia-en, etc." }
         }
       }
     }
@@ -142,15 +171,23 @@
       },
     "ttsProvider": {
       "label": "Text-to-Speech Provider",
-      "help": "openai, elevenlabs, or kokoro (free local)"
+      "help": "openai, elevenlabs, deepgram, polly, edge, or kokoro"
     },
     "ttsVoice": {
       "label": "TTS Voice (deprecated)",
-      "help": "Use openai.voice, elevenlabs.voiceId, kokoro.voice instead"
+      "help": "Use openai.voice, elevenlabs.voiceId, edge.voice, kokoro.voice instead"
+    },
+    "ttsFallbackProviders": {
+      "label": "TTS Fallback Providers",
+      "help": "Fallbacks tried in order when primary fails (quota/rate limit). E.g. [\"edge\", \"polly\", \"kokoro\"]"
     },
     "openai.voice": {
       "label": "OpenAI TTS Voice",
       "help": "nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral"
+    },
+    "edge.voice": {
+      "label": "Edge TTS Voice",
+      "help": "de-DE-KatjaNeural, en-US-MichelleNeural, etc."
     },
     "kokoro.voice": {
       "label": "Kokoro TTS Voice",

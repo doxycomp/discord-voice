@@ -9,7 +9,7 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
 - **Speech-to-Text**: Whisper API (OpenAI), Deepgram, or Local Whisper (Offline)
 - **Streaming STT**: Real-time transcription with Deepgram WebSocket (~1s latency reduction)
 - **Agent Integration**: Transcribed speech is routed through the Clawdbot agent
-- **Text-to-Speech**: OpenAI TTS, ElevenLabs, or Kokoro (Local/Offline)
+- **Text-to-Speech**: OpenAI TTS, ElevenLabs, Deepgram Aura, Amazon Polly, Edge TTS (Microsoft, free), or Kokoro (Local/Offline)
 - **Audio Playback**: Responses are spoken back in the voice channel
 - **Barge-in Support**: Stops speaking immediately when user starts talking
 - **Thinking Sound**: Optional looping sound while processing (configurable)
@@ -120,7 +120,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `enabled` | boolean | `true` | Enable/disable the plugin |
 | `sttProvider` | string | `"whisper"` | `"whisper"`, `"local-whisper"`, `"gpt4o-mini"`, `"gpt4o-transcribe"`, `"gpt4o-transcribe-diarize"` (OpenAI), or `"deepgram"` |
 | `streamingSTT` | boolean | `true` | Use streaming STT (Deepgram only, ~1s faster) |
-| `ttsProvider` | string | `"openai"` | `"openai"`, `"elevenlabs"`, or `"kokoro"` |
+| `ttsProvider` | string | `"openai"` | `"openai"`, `"elevenlabs"`, `"deepgram"`, `"polly"`, `"edge"`, or `"kokoro"` |
 | `ttsVoice` | string | `"nova"` | Deprecated – use provider-specific: `openai.voice`, `elevenlabs.voiceId`, `kokoro.voice` |
 | `vadSensitivity` | string | `"medium"` | `"low"`, `"medium"`, or `"high"` |
 | `bargeIn` | boolean | `true` | Stop speaking when user talks |
@@ -132,7 +132,8 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `openclawRoot` | string | `undefined` | OpenClaw package root if auto-detection fails |
 | `thinkingSound` | object | see [Thinking Sound](#thinking-sound) | Sound played while processing |
 | `noEmojiHint` | boolean \| string | `true` | Inject TTS hint into agent prompt; when set, emojis are also stripped from responses before TTS (avoids Kokoro reading them aloud) |
-| `ttsFallbackProvider` | string | `undefined` | Fallback when primary fails (quota/rate limit): `"openai"`, `"elevenlabs"`, or `"kokoro"` (free, local). Once switched, the session stays on fallback until the bot leaves the channel. |
+| `ttsFallbackProvider` | string | `undefined` | Single fallback (legacy). Prefer `ttsFallbackProviders` for ordered fallback chain. |
+| `ttsFallbackProviders` | string[] | `undefined` | Fallback TTS providers tried in order when primary fails (quota/rate limit). E.g. `["edge", "polly", "kokoro"]`. Once one succeeds, the session stays on it until the bot leaves the channel. |
 
 ### Fallbacks from Main OpenClaw Config
 
@@ -179,14 +180,33 @@ OpenAI STT options: `whisper` (legacy), `gpt4o-mini` (faster, cheaper), `gpt4o-t
 - `modelId: "v2"` – eleven_multilingual_v2 (balanced)
 - `modelId: "v3"` – eleven_multilingual_v3 (most expressive)
 
-#### Deepgram (STT only)
+#### Deepgram (STT + TTS)
 
 ```json5
 {
   sttProvider: "deepgram",
   deepgram: {
     apiKey: "...",
-    model: "nova-2",
+    model: "nova-2",           // STT model
+    ttsModel: "aura-asteria-en",  // TTS model (Aura), default
+  },
+}
+```
+Use `ttsProvider: "deepgram"` for TTS. Aura models: aura-asteria-en, aura-2-thalia-en, etc. Output: Opus/OGG for Discord.
+
+#### Amazon Polly (TTS only)
+
+Uses AWS credentials (env vars, profile, or explicit keys). Default voice: Joanna.
+
+```json5
+{
+  ttsProvider: "polly",
+  polly: {
+    region: "us-east-1",
+    voiceId: "Joanna",
+    engine: "neural",  // optional: standard | neural | long-form | generative
+    accessKeyId: "...",     // optional, else uses AWS default chain
+    secretAccessKey: "...",
   },
 }
 ```
@@ -205,9 +225,29 @@ No API key required. Runs locally using Xenova/Transformers.
 }
 ```
 
+#### Edge TTS (Microsoft) – Free
+
+No API key required. Uses Microsoft's online neural TTS via `node-edge-tts`. Default voice: Katja (de-DE). Output format optimized for Discord (WebM/Opus).
+
+```json5
+{
+  ttsProvider: "edge",
+  edge: {
+    voice: "de-DE-KatjaNeural",  // Default: Katja (German)
+    lang: "de-DE",
+    outputFormat: "webm-24khz-16bit-mono-opus",  // Best for Discord
+    rate: "+0%",   // Optional: e.g. "+10%", "-5%"
+    pitch: "+0%",  // Optional
+    volume: "+0%", // Optional
+    proxy: undefined,  // Optional: proxy URL
+    timeoutMs: 30000,
+  },
+}
+```
+
 #### Kokoro (Local TTS) – Free
 
-No API key required. Runs locally on CPU. Use as primary or as `ttsFallbackProvider` when ElevenLabs/OpenAI hit quota limits. With `noEmojiHint` enabled (default), emojis are stripped from responses before TTS so Kokoro does not try to read them aloud.
+No API key required. Runs locally on CPU. Use as primary or in `ttsFallbackProviders` when ElevenLabs/OpenAI hit quota limits. With `noEmojiHint` enabled (default), emojis are stripped from responses before TTS so Kokoro does not try to read them aloud.
 
 ```json5
 {
@@ -222,12 +262,20 @@ No API key required. Runs locally on CPU. Use as primary or as `ttsFallbackProvi
 
 #### TTS Fallback (quota / rate limit)
 
-When the primary TTS fails with quota exceeded or rate limit, a fallback provider can be used. Once switched to fallback, the session stays on the fallback provider until the bot leaves the voice channel, avoiding repeated failures on each response.
+When the primary TTS fails with quota exceeded or rate limit, fallback providers are tried in order. Once one succeeds, the session stays on it until the bot leaves the voice channel.
 
 ```json5
+// Multiple fallbacks (tried in order: edge → polly → kokoro)
 {
   ttsProvider: "elevenlabs",
-  ttsFallbackProvider: "kokoro",  // Free local fallback when ElevenLabs quota is exceeded
+  ttsFallbackProviders: ["edge", "polly", "kokoro"],
+  elevenlabs: { apiKey: "...", voiceId: "...", modelId: "turbo" },
+}
+
+// Single fallback (legacy, same as ttsFallbackProviders: ["kokoro"])
+{
+  ttsProvider: "elevenlabs",
+  ttsFallbackProvider: "kokoro",
   elevenlabs: { apiKey: "...", voiceId: "...", modelId: "turbo" },
 }
 ```

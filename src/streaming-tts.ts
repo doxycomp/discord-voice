@@ -173,8 +173,11 @@ export function createStreamingTTSProvider(config: DiscordVoiceConfig): Streamin
       return new ElevenLabsStreamingTTS(config);
     case "openai":
       return new OpenAIStreamingTTS(config);
+    case "deepgram":
+    case "polly":
+    case "edge":
     case "kokoro":
-      return null; // Kokoro has no streaming – batch TTS used directly
+      return null; // Batch-only providers
     default:
       return new OpenAIStreamingTTS(config);
   }

@@ -13,10 +13,10 @@ export interface DiscordVoiceConfig {
   enabled: boolean;
   sttProvider: "whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram" | "local-whisper";
   streamingSTT: boolean; // Use streaming STT (Deepgram only) for lower latency
-  ttsProvider: "openai" | "elevenlabs" | "kokoro";
+  ttsProvider: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge";
   ttsVoice: string;
-  /** Fallback TTS provider when primary fails (quota, rate limit). E.g. "kokoro" for free local fallback. */
-  ttsFallbackProvider?: "openai" | "elevenlabs" | "kokoro";
+  /** Fallback TTS providers when primary fails (quota, rate limit), tried in order. E.g. ["edge", "kokoro"] */
+  ttsFallbackProviders?: readonly ("openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge")[];
   vadSensitivity: "low" | "medium" | "high";
   bargeIn: boolean; // Stop speaking when user starts talking
   allowedUsers: string[];
@@ -65,6 +65,16 @@ export interface DiscordVoiceConfig {
   deepgram?: {
     apiKey?: string;
     model?: string;
+    /** TTS model (Aura): aura-asteria-en, aura-2-thalia-en, etc. Default: aura-asteria-en */
+    ttsModel?: string;
+  };
+  /** Amazon Polly TTS */
+  polly?: {
+    region?: string;
+    voiceId?: string;
+    engine?: "standard" | "neural" | "long-form" | "generative";
+    accessKeyId?: string;
+    secretAccessKey?: string;
   };
   localWhisper?: {
     model?: string; // e.g., "Xenova/whisper-tiny.en"
@@ -75,6 +85,17 @@ export interface DiscordVoiceConfig {
     dtype?: "fp32" | "fp16" | "q8" | "q4" | "q4f16";
     /** Kokoro voice: af_heart, af_bella, af_nicole, etc. Default: af_heart */
     voice?: string;
+  };
+  /** Edge TTS (Microsoft, free, no API key). Default voice: de-DE-KatjaNeural */
+  edge?: {
+    voice?: string;
+    lang?: string;
+    outputFormat?: string;
+    rate?: string;
+    pitch?: string;
+    volume?: string;
+    proxy?: string;
+    timeoutMs?: number;
   };
 }
 
@@ -216,7 +237,12 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
   const obj = raw as Record<string, unknown>;
 
   const ttsProviderRaw =
-    obj.ttsProvider === "elevenlabs" ? "elevenlabs" : obj.ttsProvider === "kokoro" ? "kokoro" : obj.ttsProvider === "openai" ? "openai" : null;
+    obj.ttsProvider === "deepgram" ? "deepgram" :
+    obj.ttsProvider === "elevenlabs" ? "elevenlabs" :
+    obj.ttsProvider === "polly" ? "polly" :
+    obj.ttsProvider === "edge" ? "edge" :
+    obj.ttsProvider === "kokoro" ? "kokoro" :
+    obj.ttsProvider === "openai" ? "openai" : null;
   const ttsProvider = ttsProviderRaw ?? fallback.ttsProvider ?? DEFAULT_CONFIG.ttsProvider;
 
   const ttsVoiceVal = typeof obj.ttsVoice === "string" ? obj.ttsVoice : null;
@@ -240,17 +266,33 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
                 ? "local-whisper"
                 : "whisper",
     streamingSTT: typeof obj.streamingSTT === "boolean" ? obj.streamingSTT : DEFAULT_CONFIG.streamingSTT,
-    ttsProvider: (["openai", "elevenlabs", "kokoro"].includes(obj.ttsProvider as string)
+    ttsProvider: (["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"].includes(obj.ttsProvider as string)
       ? obj.ttsProvider
-      : ttsProviderRaw) as "openai" | "elevenlabs" | "kokoro",
+      : ttsProviderRaw) as "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge",
     ttsVoice,
-    ttsFallbackProvider: (() => {
-      const primary = (["openai", "elevenlabs", "kokoro"].includes(obj.ttsProvider as string)
+    ttsFallbackProviders: (() => {
+      const valid = ["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"] as const;
+      const primary = (valid.includes(obj.ttsProvider as (typeof valid)[number])
         ? obj.ttsProvider
-        : ttsProviderRaw) as "openai" | "elevenlabs" | "kokoro";
+        : ttsProviderRaw) as (typeof valid)[number];
+      const excludePrimary = (p: string) => p !== primary;
+      const toProvider = (p: string): (typeof valid)[number] | null =>
+        valid.includes(p as (typeof valid)[number]) ? (p as (typeof valid)[number]) : null;
+
+      const arr = obj.ttsFallbackProviders;
+      if (Array.isArray(arr) && arr.length > 0) {
+        const list = arr
+          .filter((x): x is string => typeof x === "string")
+          .map(toProvider)
+          .filter((x): x is (typeof valid)[number] => x !== null)
+          .filter(excludePrimary);
+        return list.length > 0 ? list : undefined;
+      }
       const fb = obj.ttsFallbackProvider;
-      if (!["openai", "elevenlabs", "kokoro"].includes(fb as string)) return undefined;
-      return fb === primary ? undefined : (fb as "openai" | "elevenlabs" | "kokoro");
+      if (typeof fb === "string" && valid.includes(fb as (typeof valid)[number]) && fb !== primary) {
+        return [fb as (typeof valid)[number]];
+      }
+      return undefined;
     })(),
     vadSensitivity: ["low", "medium", "high"].includes(obj.vadSensitivity as string)
       ? (obj.vadSensitivity as "low" | "medium" | "high")
@@ -318,6 +360,9 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       ? {
           apiKey: (obj.deepgram as Record<string, unknown>).apiKey as string | undefined,
           model: ((obj.deepgram as Record<string, unknown>).model as string) || "nova-2",
+          ttsModel: typeof (obj.deepgram as Record<string, unknown>).ttsModel === "string" && (obj.deepgram as Record<string, unknown>).ttsModel
+            ? String((obj.deepgram as Record<string, unknown>).ttsModel).trim()
+            : "aura-asteria-en",
         }
       : undefined,
     localWhisper:
@@ -345,6 +390,35 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
               : "af_heart",
           }
         : undefined,
+    edge: (() => {
+      const e = obj.edge && typeof obj.edge === "object" ? (obj.edge as Record<string, unknown>) : null;
+      if (!e) return undefined;
+      return {
+        voice: typeof e.voice === "string" && e.voice.trim() ? String(e.voice).trim() : "de-DE-KatjaNeural",
+        lang: typeof e.lang === "string" && e.lang.trim() ? String(e.lang).trim() : "de-DE",
+        outputFormat: typeof e.outputFormat === "string" && e.outputFormat.trim()
+          ? String(e.outputFormat).trim()
+          : "webm-24khz-16bit-mono-opus",
+        rate: typeof e.rate === "string" && e.rate.trim() ? String(e.rate).trim() : undefined,
+        pitch: typeof e.pitch === "string" && e.pitch.trim() ? String(e.pitch).trim() : undefined,
+        volume: typeof e.volume === "string" && e.volume.trim() ? String(e.volume).trim() : undefined,
+        proxy: typeof e.proxy === "string" && e.proxy.trim() ? String(e.proxy).trim() : undefined,
+        timeoutMs: typeof e.timeoutMs === "number" && e.timeoutMs >= 0 ? e.timeoutMs : undefined,
+      };
+    })(),
+    polly: (() => {
+      const p = obj.polly && typeof obj.polly === "object" ? (obj.polly as Record<string, unknown>) : null;
+      if (!p) return undefined;
+      return {
+        region: typeof p.region === "string" && p.region.trim() ? String(p.region).trim() : undefined,
+        voiceId: typeof p.voiceId === "string" && p.voiceId.trim() ? String(p.voiceId).trim() : "Joanna",
+        engine: ["standard", "neural", "long-form", "generative"].includes(p.engine as string)
+          ? (p.engine as "standard" | "neural" | "long-form" | "generative")
+          : undefined,
+        accessKeyId: typeof p.accessKeyId === "string" && p.accessKeyId.trim() ? String(p.accessKeyId).trim() : undefined,
+        secretAccessKey: typeof p.secretAccessKey === "string" && p.secretAccessKey ? String(p.secretAccessKey) : undefined,
+      };
+    })(),
     thinkingSound: (() => {
       const t = obj.thinkingSound && typeof obj.thinkingSound === "object" ? (obj.thinkingSound as Record<string, unknown>) : null;
       if (!t) return { enabled: true, path: "assets/thinking.mp3", volume: 0.7, stopDelayMs: 50 };

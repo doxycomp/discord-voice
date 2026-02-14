@@ -22,9 +22,9 @@
       },
       "ttsProvider": {
         "type": "string",
-        "enum": ["openai", "elevenlabs", "kokoro"],
+        "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro"],
         "default": "openai",
-        "description": "openai, elevenlabs, or kokoro (free local)"
+        "description": "openai, elevenlabs, edge (free), or kokoro (free local)"
       },
       "ttsVoice": {
         "type": "string",
@@ -97,6 +97,27 @@
           "voice": { "type": "string", "default": "nova", "description": "nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral" }
         }
       },
+      "polly": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string", "default": "us-east-1" },
+          "voiceId": { "type": "string", "default": "Joanna" },
+          "engine": { "type": "string", "enum": ["standard", "neural", "long-form", "generative"] }
+        }
+      },
+      "edge": {
+        "type": "object",
+        "properties": {
+          "voice": { "type": "string", "default": "de-DE-KatjaNeural" },
+          "lang": { "type": "string", "default": "de-DE" },
+          "outputFormat": { "type": "string", "default": "webm-24khz-16bit-mono-opus" },
+          "rate": { "type": "string" },
+          "pitch": { "type": "string" },
+          "volume": { "type": "string" },
+          "proxy": { "type": "string" },
+          "timeoutMs": { "type": "number" }
+        }
+      },
       "kokoro": {
         "type": "object",
         "properties": {
@@ -117,7 +138,8 @@
         "type": "object",
         "properties": {
           "apiKey": { "type": "string" },
-          "model": { "type": "string", "default": "nova-2" }
+          "model": { "type": "string", "default": "nova-2" },
+          "ttsModel": { "type": "string", "default": "aura-asteria-en" }
         }
       }
     }
@@ -133,7 +155,7 @@
     },
     "ttsProvider": {
       "label": "Text-to-Speech Provider",
-      "help": "Use 'openai' or 'elevenlabs'"
+      "help": "openai, elevenlabs, deepgram, polly, edge, or kokoro"
     },
     "ttsVoice": {
       "label": "TTS Voice (deprecated)",
