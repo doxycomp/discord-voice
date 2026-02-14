@@ -11,18 +11,18 @@ export interface VoiceCallTtsConfig {
 
 export interface DiscordVoiceConfig {
   enabled: boolean;
-  sttProvider: "whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram";
-  streamingSTT: boolean;  // Use streaming STT (Deepgram only) for lower latency
-  ttsProvider: "openai" | "elevenlabs";
+  sttProvider: "whisper" | "gpt4o-mini" | "gpt4o-transcribe" | "gpt4o-transcribe-diarize" | "deepgram" | "local-whisper";
+  streamingSTT: boolean; // Use streaming STT (Deepgram only) for lower latency
+  ttsProvider: "openai" | "elevenlabs" | "kokoro";
   ttsVoice: string;
   vadSensitivity: "low" | "medium" | "high";
-  bargeIn: boolean;       // Stop speaking when user starts talking
+  bargeIn: boolean; // Stop speaking when user starts talking
   allowedUsers: string[];
   silenceThresholdMs: number;
   minAudioMs: number;
   maxRecordingMs: number;
   autoJoinChannel?: string; // Channel ID to auto-join on startup
-  heartbeatIntervalMs?: number;  // Connection health check interval
+  heartbeatIntervalMs?: number; // Connection health check interval
   /** OpenClaw package root (if auto-detection fails); path to openclaw package dir containing dist/extensionAPI.js */
   openclawRoot?: string;
 
@@ -32,11 +32,11 @@ export interface DiscordVoiceConfig {
     path?: string;   // default: "assets/thinking.mp3"
     volume?: number; // 0–1, default 0.7
   };
-  
+
   // LLM settings for voice responses (use fast models for low latency)
-  model?: string;         // e.g. "anthropic/claude-3-5-haiku-latest" or "openai/gpt-4o-mini"
-  thinkLevel?: string;    // "off", "low", "medium", "high" - lower = faster
-  
+  model?: string; // e.g. "anthropic/claude-3-5-haiku-latest" or "openai/gpt-4o-mini"
+  thinkLevel?: string; // "off", "low", "medium", "high" - lower = faster
+
   openai?: {
     apiKey?: string;
     whisperModel?: string;
@@ -55,19 +55,27 @@ export interface DiscordVoiceConfig {
     apiKey?: string;
     model?: string;
   };
+  localWhisper?: {
+    model?: string; // e.g., "Xenova/whisper-tiny.en"
+    quantized?: boolean;
+  };
+  kokoro?: {
+    modelId?: string;
+    dtype?: "fp32" | "fp16" | "q8" | "q4" | "q4f16";
+  };
 }
 
 export const DEFAULT_CONFIG: DiscordVoiceConfig = {
   enabled: true,
   sttProvider: "whisper",
-  streamingSTT: true,       // Enable streaming by default when using Deepgram
+  streamingSTT: true, // Enable streaming by default when using Deepgram
   ttsProvider: "openai",
   ttsVoice: "nova",
   vadSensitivity: "medium",
-  bargeIn: true,            // Enable barge-in by default
+  bargeIn: true, // Enable barge-in by default
   allowedUsers: [],
   silenceThresholdMs: 1000, // 1 second - faster response after speech ends
-  minAudioMs: 300,          // 300ms minimum - filter very short noise
+  minAudioMs: 300, // 300ms minimum - filter very short noise
   maxRecordingMs: 30000,
   heartbeatIntervalMs: 30000,
   // model: undefined - uses system default, recommend "anthropic/claude-3-5-haiku-latest" for speed
@@ -191,7 +199,7 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
   const obj = raw as Record<string, unknown>;
 
   const ttsProviderRaw =
-    obj.ttsProvider === "elevenlabs" ? "elevenlabs" : obj.ttsProvider === "openai" ? "openai" : null;
+    obj.ttsProvider === "elevenlabs" ? "elevenlabs" : obj.ttsProvider === "kokoro" ? "kokoro" : obj.ttsProvider === "openai" ? "openai" : null;
   const ttsProvider = ttsProviderRaw ?? fallback.ttsProvider ?? DEFAULT_CONFIG.ttsProvider;
 
   const ttsVoiceVal = typeof obj.ttsVoice === "string" ? obj.ttsVoice : null;
@@ -211,9 +219,13 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
             ? "gpt4o-transcribe"
             : obj.sttProvider === "gpt4o-mini"
               ? "gpt4o-mini"
-              : "whisper",
+              : obj.sttProvider === "local-whisper"
+                ? "local-whisper"
+                : "whisper",
     streamingSTT: typeof obj.streamingSTT === "boolean" ? obj.streamingSTT : DEFAULT_CONFIG.streamingSTT,
-    ttsProvider,
+    ttsProvider: (["openai", "elevenlabs", "kokoro"].includes(obj.ttsProvider as string)
+      ? obj.ttsProvider
+      : ttsProviderRaw) as "openai" | "elevenlabs" | "kokoro",
     ttsVoice,
     vadSensitivity: ["low", "medium", "high"].includes(obj.vadSensitivity as string)
       ? (obj.vadSensitivity as "low" | "medium" | "high")
@@ -223,17 +235,9 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       ? obj.allowedUsers.filter((u): u is string => typeof u === "string")
       : [],
     silenceThresholdMs:
-      typeof obj.silenceThresholdMs === "number"
-        ? obj.silenceThresholdMs
-        : DEFAULT_CONFIG.silenceThresholdMs,
-    minAudioMs:
-      typeof obj.minAudioMs === "number"
-        ? obj.minAudioMs
-        : DEFAULT_CONFIG.minAudioMs,
-    maxRecordingMs:
-      typeof obj.maxRecordingMs === "number"
-        ? obj.maxRecordingMs
-        : DEFAULT_CONFIG.maxRecordingMs,
+      typeof obj.silenceThresholdMs === "number" ? obj.silenceThresholdMs : DEFAULT_CONFIG.silenceThresholdMs,
+    minAudioMs: typeof obj.minAudioMs === "number" ? obj.minAudioMs : DEFAULT_CONFIG.minAudioMs,
+    maxRecordingMs: typeof obj.maxRecordingMs === "number" ? obj.maxRecordingMs : DEFAULT_CONFIG.maxRecordingMs,
     autoJoinChannel:
       typeof obj.autoJoinChannel === "string" && obj.autoJoinChannel.trim()
         ? obj.autoJoinChannel.trim()
@@ -274,6 +278,28 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
           model: ((obj.deepgram as Record<string, unknown>).model as string) || "nova-2",
         }
       : undefined,
+    localWhisper:
+      obj.localWhisper && typeof obj.localWhisper === "object"
+        ? {
+            model: ((obj.localWhisper as Record<string, unknown>).model as string) || "Xenova/whisper-tiny.en",
+            quantized:
+              typeof (obj.localWhisper as Record<string, unknown>).quantized === "boolean"
+                ? ((obj.localWhisper as Record<string, unknown>).quantized as boolean)
+                : true,
+          }
+        : undefined,
+    kokoro:
+      obj.kokoro && typeof obj.kokoro === "object"
+        ? {
+            modelId: (() => {
+              const m = (obj.kokoro as Record<string, unknown>).modelId;
+              return typeof m === "string" && m.trim() ? m.trim() : "onnx-community/Kokoro-82M-v1.0-ONNX";
+            })(),
+            dtype: (["fp32", "fp16", "q8", "q4", "q4f16"].includes((obj.kokoro as Record<string, unknown>).dtype as string)
+              ? (obj.kokoro as Record<string, unknown>).dtype
+              : "fp32") as "fp32" | "fp16" | "q8" | "q4" | "q4f16",
+          }
+        : undefined,
     thinkingSound: (() => {
       const t = obj.thinkingSound && typeof obj.thinkingSound === "object" ? (obj.thinkingSound as Record<string, unknown>) : null;
       if (!t) return { enabled: true, path: "assets/thinking.mp3", volume: 0.7 };

@@ -55,7 +55,7 @@ if (existsSync(entryPath)) {
   fail("Entry file missing");
 }
 
-// 4. Core bridge API alignment (extensionAPI exports)
+// 4. Core bridge API alignment (extensionAPI expectations) (extensionAPI exports)
 const expectedExports = [
   "resolveAgentDir",
   "resolveAgentWorkspaceDir",
@@ -94,7 +94,31 @@ if (existsSync(coreBridgePath)) {
   fail("src/core-bridge.ts missing");
 }
 
-// 5. Optional: load extensionAPI if OPENCLAW_ROOT set
+// 5. Local providers (local-whisper, kokoro) from PR #2
+const sttPath = join(root, "src", "stt.ts");
+const ttsPath = join(root, "src", "tts.ts");
+if (existsSync(sttPath)) {
+  const sttContent = readFileSync(sttPath, "utf8");
+  if (sttContent.includes("LocalWhisperSTT") && sttContent.includes('case "local-whisper"')) {
+    ok("stt.ts: LocalWhisperSTT and local-whisper provider present");
+  } else {
+    fail("stt.ts: LocalWhisperSTT or local-whisper case missing");
+  }
+} else {
+  fail("src/stt.ts missing");
+}
+if (existsSync(ttsPath)) {
+  const ttsContent = readFileSync(ttsPath, "utf8");
+  if (ttsContent.includes("KokoroTTSProvider") && ttsContent.includes('case "kokoro"')) {
+    ok("tts.ts: KokoroTTSProvider and kokoro provider present");
+  } else {
+    fail("tts.ts: KokoroTTSProvider or kokoro case missing");
+  }
+} else {
+  fail("src/tts.ts missing");
+}
+
+// 6. Optional: load extensionAPI if OPENCLAW_ROOT set
 const openclawRoot = process.env.OPENCLAW_ROOT?.trim();
 if (openclawRoot) {
   const extPath = join(openclawRoot, "dist", "extensionAPI.js");

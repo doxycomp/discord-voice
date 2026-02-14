@@ -6,10 +6,10 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
 
 - **Join/Leave Voice Channels**: Via slash commands, CLI, or agent tool
 - **Voice Activity Detection (VAD)**: Automatically detects when users are speaking
-- **Speech-to-Text**: Whisper API (OpenAI) or Deepgram
+- **Speech-to-Text**: Whisper API (OpenAI), Deepgram, or Local Whisper (Offline)
 - **Streaming STT**: Real-time transcription with Deepgram WebSocket (~1s latency reduction)
 - **Agent Integration**: Transcribed speech is routed through the Clawdbot agent
-- **Text-to-Speech**: OpenAI TTS or ElevenLabs
+- **Text-to-Speech**: OpenAI TTS, ElevenLabs, or Kokoro (Local/Offline)
 - **Audio Playback**: Responses are spoken back in the voice channel
 - **Barge-in Support**: Stops speaking immediately when user starts talking
 - **Thinking Sound**: Optional looping sound while processing (configurable)
@@ -53,25 +53,25 @@ openclaw plugins install ./path/to/discord-voice
 
 ```json5
 {
-  "plugins": {
-    "entries": {
+  plugins: {
+    entries: {
       "discord-voice": {
-        "enabled": true,
-        "config": {
-          "sttProvider": "whisper",
-          "ttsProvider": "openai",
-          "ttsVoice": "nova",
-          "vadSensitivity": "medium",
-          "allowedUsers": [],  // Empty = allow all users
-          "silenceThresholdMs": 1500,
-          "maxRecordingMs": 30000,
-          "openai": {
-            "apiKey": "sk-..."  // Or use OPENAI_API_KEY env var
-          }
-        }
-      }
-    }
-  }
+        enabled: true,
+        config: {
+          sttProvider: "whisper",
+          ttsProvider: "openai",
+          ttsVoice: "nova",
+          vadSensitivity: "medium",
+          allowedUsers: [], // Empty = allow all users
+          silenceThresholdMs: 1500,
+          maxRecordingMs: 30000,
+          openai: {
+            apiKey: "sk-...", // Or use OPENAI_API_KEY env var
+          },
+        },
+      },
+    },
+  },
 }
 ```
 
@@ -106,6 +106,7 @@ Replace `DISCORDCHANNELID` with your Discord voice channel ID and `VOICEID` with
 ### 4. Discord Bot Setup
 
 Ensure your Discord bot has these permissions:
+
 - **Connect** - Join voice channels
 - **Speak** - Play audio
 - **Use Voice Activity** - Detect when users speak
@@ -117,9 +118,9 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable the plugin |
-| `sttProvider` | string | `"whisper"` | `"whisper"`, `"gpt4o-mini"`, `"gpt4o-transcribe"`, `"gpt4o-transcribe-diarize"` (OpenAI), or `"deepgram"` |
+| `sttProvider` | string | `"whisper"` | `"whisper"`, `"local-whisper"`, `"gpt4o-mini"`, `"gpt4o-transcribe"`, `"gpt4o-transcribe-diarize"` (OpenAI), or `"deepgram"` |
 | `streamingSTT` | boolean | `true` | Use streaming STT (Deepgram only, ~1s faster) |
-| `ttsProvider` | string | `"openai"` | `"openai"` or `"elevenlabs"` |
+| `ttsProvider` | string | `"openai"` | `"openai"`, `"elevenlabs"`, or `"kokoro"` |
 | `ttsVoice` | string | `"nova"` | Voice ID for TTS |
 | `vadSensitivity` | string | `"medium"` | `"low"`, `"medium"`, or `"high"` |
 | `bargeIn` | boolean | `true` | Stop speaking when user talks |
@@ -160,6 +161,7 @@ The Discord bot token is always read from `channels.discord.token` (or `channels
 OpenAI STT options: `whisper` (legacy), `gpt4o-mini` (faster, cheaper), `gpt4o-transcribe` (higher quality), `gpt4o-transcribe-diarize` (with speaker identification).
 
 #### ElevenLabs (TTS only)
+
 ```json5
 {
   "elevenlabs": {
@@ -175,12 +177,43 @@ OpenAI STT options: `whisper` (legacy), `gpt4o-mini` (faster, cheaper), `gpt4o-t
 - `modelId: "v3"` – eleven_multilingual_v3 (most expressive)
 
 #### Deepgram (STT only)
+
 ```json5
 {
-  "deepgram": {
-    "apiKey": "...",
-    "model": "nova-2"
-  }
+  sttProvider: "deepgram",
+  deepgram: {
+    apiKey: "...",
+    model: "nova-2",
+  },
+}
+```
+
+#### Local Whisper (STT only, offline)
+
+No API key required. Runs locally using Xenova/Transformers.
+
+```json5
+{
+  sttProvider: "local-whisper",
+  localWhisper: {
+    model: "Xenova/whisper-tiny.en",  // Optional, default
+    quantized: true,                   // Optional, smaller/faster
+  },
+}
+```
+
+#### Kokoro (Local TTS)
+
+No API key required. Runs locally on CPU.
+
+```json5
+{
+  ttsProvider: "kokoro",
+  ttsVoice: "af_heart", // Options: af_heart, af_bella, af_nicole, etc.
+  kokoro: {
+    modelId: "onnx-community/Kokoro-82M-v1.0-ONNX", // Optional
+    dtype: "fp32", // Optional: "fp32", "q8", "q4"
+  },
 }
 ```
 
@@ -189,6 +222,7 @@ OpenAI STT options: `whisper` (legacy), `gpt4o-mini` (faster, cheaper), `gpt4o-t
 ### Slash Commands (Discord)
 
 Once registered with Discord, use these commands:
+
 - `/voice join <channel>` - Join a voice channel
 - `/voice leave` - Leave the current voice channel
 - `/voice status` - Show voice connection status
@@ -209,11 +243,13 @@ clawdbot voice status
 ### Agent Tool
 
 The agent can use the `discord_voice` tool:
+
 ```
 Join voice channel 1234567890
 ```
 
 The tool supports actions:
+
 - `join` - Join a voice channel (requires channelId)
 - `leave` - Leave voice channel
 - `speak` - Speak text in the voice channel
@@ -239,14 +275,15 @@ When using Deepgram as your STT provider, streaming mode is enabled by default. 
 - **Fallback** to batch transcription if streaming fails
 
 To use streaming STT:
+
 ```json5
 {
-  "sttProvider": "deepgram",
-  "streamingSTT": true,  // default
-  "deepgram": {
-    "apiKey": "...",
-    "model": "nova-2"
-  }
+  sttProvider: "deepgram",
+  streamingSTT: true, // default
+  deepgram: {
+    apiKey: "...",
+    model: "nova-2",
+  },
 }
 ```
 
@@ -255,9 +292,10 @@ To use streaming STT:
 When enabled (default), the bot will immediately stop speaking if a user starts talking. This creates a more natural conversational flow where you can interrupt the bot.
 
 To disable (let the bot finish speaking):
+
 ```json5
 {
-  "bargeIn": false
+  bargeIn: false,
 }
 ```
 
@@ -290,6 +328,7 @@ The plugin includes automatic connection health monitoring:
 - **Max 3 attempts** before giving up
 
 If the connection drops, you'll see logs like:
+
 ```
 [discord-voice] Disconnected from voice channel
 [discord-voice] Reconnection attempt 1/3
@@ -325,6 +364,7 @@ If you see this when processing voice input, set `openclawRoot` in your plugin c
 Example: if your `extensionAPI.js` is at `.../discord-voice/node_modules/openclaw/dist/extensionAPI.js`, use the `node_modules/openclaw` path (the directory containing `dist/`). Alternatively, set the `OPENCLAW_ROOT` environment variable.
 
 ### "Discord client not available"
+
 Ensure the Discord channel is configured and the bot is connected before using voice.
 
 ### "Cannot find module structures/ClientUser" (discord.js)
@@ -337,23 +377,28 @@ npm install
 Then restart the gateway.
 
 ### Opus/Sodium build errors
+
 Install build tools:
+
 ```bash
 npm install -g node-gyp
 npm rebuild @discordjs/opus sodium-native
 ```
 
 ### No audio heard
+
 1. Check bot has Connect + Speak permissions
 2. Check bot isn't server muted
 3. Verify TTS API key is valid
 
 ### Transcription not working
+
 1. Check STT API key is valid
 2. Check audio is being recorded (see debug logs)
 3. Try adjusting VAD sensitivity
 
 ### Enable debug logging
+
 ```bash
 DEBUG=discord-voice clawdbot gateway start
 ```
