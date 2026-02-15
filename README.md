@@ -321,43 +321,43 @@ When the primary STT fails (quota, rate limit, or Wyoming unreachable), fallback
 
 ### Slash Commands (Discord)
 
-Once registered with Discord, use these commands:
+Once registered with Discord, use these commands (prefix `/discord_voice` to avoid overlap with other voice/TTS commands):
 
-- `/voice join <channel>` - Join a voice channel
-- `/voice leave` - Leave the current voice channel
-- `/voice status` - Show voice connection status, STT/TTS provider, model, think level, and available models
-- `/voice reset-fallback` - Reset STT/TTS fallbacks; next request will try primary providers again
-- `/voice set-stt <provider>` - Set STT provider (whisper, gpt4o-mini, deepgram, local-whisper, wyoming-whisper, etc.)
-- `/voice set-tts <provider>` - Set TTS provider (openai, elevenlabs, deepgram, polly, kokoro, edge)
-- `/voice set-model <model>` - Set LLM model (e.g. google-gemini-cli/gemini-3-fast-preview, xai/grok-4-1-fast-non-reasoning)
-- `/voice set-think <level>` - Set thinking level (off, low, medium, high)
+- `/discord_voice join <channel>` - Join a voice channel
+- `/discord_voice leave` - Leave the current voice channel
+- `/discord_voice status` - Show voice connection status, STT/TTS provider, model, think level, and available models
+- `/discord_voice reset-fallback` - Reset STT/TTS fallbacks; next request will try primary providers again
+- `/discord_voice set-stt <provider>` - Set STT provider (whisper, gpt4o-mini, deepgram, local-whisper, wyoming-whisper, etc.)
+- `/discord_voice set-tts <provider>` - Set TTS provider (openai, elevenlabs, deepgram, polly, kokoro, edge)
+- `/discord_voice set-model <model>` - Set LLM model (e.g. google-gemini-cli/gemini-3-fast-preview, xai/grok-4-1-fast-non-reasoning)
+- `/discord_voice set-think <level>` - Set thinking level (off, low, medium, high)
 
 ### CLI Commands
 
 ```bash
 # Join a voice channel
-clawdbot voice join <channelId>
+clawdbot discord_voice join <channelId>
 
 # Leave voice
-clawdbot voice leave --guild <guildId>
+clawdbot discord_voice leave --guild <guildId>
 
 # Check status (includes STT/TTS, model, think level, available models)
-clawdbot voice status
+clawdbot discord_voice status
 
 # Set STT provider
-clawdbot voice set-stt <provider> [--guild <guildId>]
+clawdbot discord_voice set-stt <provider> [--guild <guildId>]
 
 # Set TTS provider
-clawdbot voice set-tts <provider> [--guild <guildId>]
+clawdbot discord_voice set-tts <provider> [--guild <guildId>]
 
 # Set LLM model
-clawdbot voice set-model <model> [--guild <guildId>]
+clawdbot discord_voice set-model <model> [--guild <guildId>]
 
 # Set thinking level
-clawdbot voice set-think <level> [--guild <guildId>]
+clawdbot discord_voice set-think <level> [--guild <guildId>]
 
 # Reset fallbacks – use primary providers on next request
-clawdbot voice reset-fallback --guild <guildId>
+clawdbot discord_voice reset-fallback --guild <guildId>
 ```
 
 ### Agent Tool

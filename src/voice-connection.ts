@@ -142,7 +142,7 @@ export interface VoiceSession {
   /** Dedupe: skip processing same transcript within this window (ms) */
   lastProcessedTranscript?: string;
   lastProcessedTranscriptAt?: number;
-  /** Runtime overrides via /voice set-* commands */
+  /** Runtime overrides via /discord_voice set-* commands */
   sttProviderOverride?: VoiceSession["fallbackSttProvider"];
   ttsProviderOverride?: VoiceSession["fallbackTtsProvider"];
   modelOverride?: string;

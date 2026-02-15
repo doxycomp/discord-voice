@@ -4,7 +4,7 @@
  * Enables real-time voice conversations in Discord voice channels.
  *
  * Features:
- * - Join/leave voice channels via slash commands (/voice join, /voice leave)
+ * - Join/leave voice channels via slash commands (/discord_voice join, /discord_voice leave)
  * - Listen to user speech with VAD (Voice Activity Detection)
  * - Speech-to-text via Whisper API or Deepgram
  * - Routes transcribed text through OpenClaw agent
@@ -249,7 +249,7 @@ const discordVoicePlugin = {
         const sessionId = sessionEntry.sessionId;
         const sessionFile = deps.resolveSessionFilePath(sessionId, sessionEntry, { agentId });
 
-        // Session overrides (from /voice set-model, set-think) take precedence over config
+        // Session overrides (from /discord_voice set-model, set-think) take precedence over config
         const session = ensureVoiceManager().getSession(guildId);
         const modelRef = session?.modelOverride ?? cfg.model ?? `${deps.DEFAULT_PROVIDER}/${deps.DEFAULT_MODEL}`;
         const slashIndex = modelRef.indexOf("/");
@@ -327,7 +327,7 @@ const discordVoicePlugin = {
     }
 
     // Register Gateway RPC methods
-    api.registerGatewayMethod("discord-voice.join", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.join", async ({ params, respond }) => {
       try {
         const p = params as { channelId?: string; guildId?: string } | null;
         const channelId = p?.channelId;
@@ -363,7 +363,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.leave", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.leave", async ({ params, respond }) => {
       try {
         const p = params as { guildId?: string } | null;
         let guildId = p?.guildId;
@@ -387,7 +387,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.speak", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.speak", async ({ params, respond }) => {
       try {
         const p = params as { text?: string; guildId?: string } | null;
         const text = p?.text;
@@ -416,7 +416,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.status", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.status", async ({ params, respond }) => {
       try {
         const vm = ensureVoiceManager();
         const p = params as { guildId?: string } | null;
@@ -451,7 +451,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.set-stt", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.set-stt", async ({ params, respond }) => {
       try {
         const p = params as { guildId?: string; provider?: string } | null;
         const provider = p?.provider;
@@ -483,7 +483,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.set-tts", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.set-tts", async ({ params, respond }) => {
       try {
         const p = params as { guildId?: string; provider?: string } | null;
         const provider = p?.provider;
@@ -515,7 +515,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.set-model", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.set-model", async ({ params, respond }) => {
       try {
         const p = params as { guildId?: string; model?: string } | null;
         const model = p?.model;
@@ -541,7 +541,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.set-think", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.set-think", async ({ params, respond }) => {
       try {
         const p = params as { guildId?: string; level?: string } | null;
         const level = p?.level;
@@ -571,7 +571,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.models", async ({ respond }) => {
+    api.registerGatewayMethod("discord_voice.models", async ({ respond }) => {
       try {
         const models = getAvailableModels(api.config as Record<string, unknown>);
         respond(true, { availableModels: models });
@@ -580,7 +580,7 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.reset-fallback", async ({ params, respond }) => {
+    api.registerGatewayMethod("discord_voice.reset-fallback", async ({ params, respond }) => {
       try {
         const vm = ensureVoiceManager();
         const p = params as { guildId?: string } | null;
@@ -770,7 +770,7 @@ const discordVoicePlugin = {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prog = program as any;
 
-        const voiceCmd = prog.command("voice").description("Discord voice channel commands");
+        const voiceCmd = prog.command("discord_voice").description("Discord voice channel commands");
 
         voiceCmd
           .command("join")
@@ -955,7 +955,7 @@ const discordVoicePlugin = {
             console.log(reset ? `Reset fallbacks for guild ${guildId}` : `No active fallbacks for guild ${guildId}`);
           });
       },
-      { commands: ["voice"] }
+      { commands: ["discord_voice"] }
     );
 
     // Register background service
