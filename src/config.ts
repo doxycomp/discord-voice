@@ -495,6 +495,47 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
 }
 
 /**
+ * Extract available model IDs from OpenClaw main config (agents.list, agents.defaults).
+ * Used for validation/suggestions when setting voice model at runtime.
+ */
+export function getAvailableModels(main: MainConfig | undefined): string[] {
+  const seen = new Set<string>();
+  const add = (s: string | undefined) => {
+    if (typeof s === "string" && s.trim()) {
+      const t = s.trim();
+      if (t && !seen.has(t)) seen.add(t);
+    }
+  };
+
+  if (!main || typeof main !== "object") return [];
+
+  const m = main as Record<string, unknown>;
+  const agents = m.agents as Record<string, unknown> | undefined;
+  const defaults = agents?.defaults as Record<string, unknown> | undefined;
+  const defModel = defaults?.model;
+  if (typeof defModel === "string") add(defModel);
+  else if (defModel && typeof defModel === "object" && "primary" in defModel) {
+    add((defModel as { primary?: string }).primary);
+  }
+
+  const list = agents?.list as unknown[] | undefined;
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      if (item && typeof item === "object") {
+        const o = item as Record<string, unknown>;
+        const model = o.model;
+        if (typeof model === "string") add(model);
+        else if (model && typeof model === "object" && "primary" in model) {
+          add((model as { primary?: string }).primary);
+        }
+      }
+    }
+  }
+
+  return [...seen];
+}
+
+/**
  * Get VAD threshold based on sensitivity setting
  */
 export function getVadThreshold(sensitivity: "low" | "medium" | "high"): number {

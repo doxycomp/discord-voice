@@ -325,7 +325,12 @@ Once registered with Discord, use these commands:
 
 - `/voice join <channel>` - Join a voice channel
 - `/voice leave` - Leave the current voice channel
-- `/voice status` - Show voice connection status
+- `/voice status` - Show voice connection status, STT/TTS provider, model, think level, and available models
+- `/voice reset-fallback` - Reset STT/TTS fallbacks; next request will try primary providers again
+- `/voice set-stt <provider>` - Set STT provider (whisper, gpt4o-mini, deepgram, local-whisper, wyoming-whisper, etc.)
+- `/voice set-tts <provider>` - Set TTS provider (openai, elevenlabs, deepgram, polly, kokoro, edge)
+- `/voice set-model <model>` - Set LLM model (e.g. google-gemini-cli/gemini-3-fast-preview, xai/grok-4-1-fast-non-reasoning)
+- `/voice set-think <level>` - Set thinking level (off, low, medium, high)
 
 ### CLI Commands
 
@@ -336,8 +341,23 @@ clawdbot voice join <channelId>
 # Leave voice
 clawdbot voice leave --guild <guildId>
 
-# Check status
+# Check status (includes STT/TTS, model, think level, available models)
 clawdbot voice status
+
+# Set STT provider
+clawdbot voice set-stt <provider> [--guild <guildId>]
+
+# Set TTS provider
+clawdbot voice set-tts <provider> [--guild <guildId>]
+
+# Set LLM model
+clawdbot voice set-model <model> [--guild <guildId>]
+
+# Set thinking level
+clawdbot voice set-think <level> [--guild <guildId>]
+
+# Reset fallbacks – use primary providers on next request
+clawdbot voice reset-fallback --guild <guildId>
 ```
 
 ### Agent Tool
@@ -353,7 +373,12 @@ The tool supports actions:
 - `join` - Join a voice channel (requires channelId)
 - `leave` - Leave voice channel
 - `speak` - Speak text in the voice channel
-- `status` - Get current voice status
+- `status` - Get current voice status (STT/TTS, model, think level, available models)
+- `reset-fallback` - Reset fallbacks; next request tries primary providers
+- `set-stt` - Set STT provider for session
+- `set-tts` - Set TTS provider for session
+- `set-model` - Set LLM model (e.g. google-gemini-cli/gemini-3-fast-preview)
+- `set-think` - Set thinking level (off, low, medium, high)
 
 ## How It Works
 

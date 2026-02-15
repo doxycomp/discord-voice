@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import { Client, GatewayIntentBits, type VoiceBasedChannel, type GuildMember } from "discord.js";
 
-import { parseConfig, DEFAULT_NO_EMOJI_HINT, type DiscordVoiceConfig } from "./src/config.js";
+import { parseConfig, getAvailableModels, DEFAULT_NO_EMOJI_HINT, type DiscordVoiceConfig } from "./src/config.js";
 import { VoiceConnectionManager } from "./src/voice-connection.js";
 import { loadCoreAgentDeps, type CoreConfig } from "./src/core-bridge.js";
 
@@ -84,6 +84,36 @@ const VoiceToolSchema = Type.Union([
   }),
   Type.Object({
     action: Type.Literal("status"),
+    guildId: Type.Optional(Type.String({ description: "Guild ID (optional)" })),
+  }),
+  Type.Object({
+    action: Type.Literal("reset-fallback"),
+    guildId: Type.Optional(Type.String({ description: "Guild ID (optional)" })),
+  }),
+  Type.Object({
+    action: Type.Literal("set-stt"),
+    provider: Type.String({ description: "STT provider: whisper, gpt4o-mini, gpt4o-transcribe, gpt4o-transcribe-diarize, deepgram, local-whisper, wyoming-whisper" }),
+    guildId: Type.Optional(Type.String({ description: "Guild ID (optional)" })),
+  }),
+  Type.Object({
+    action: Type.Literal("set-tts"),
+    provider: Type.String({ description: "TTS provider: openai, elevenlabs, deepgram, polly, kokoro, edge" }),
+    guildId: Type.Optional(Type.String({ description: "Guild ID (optional)" })),
+  }),
+  Type.Object({
+    action: Type.Literal("set-model"),
+    model: Type.String({ description: "LLM model e.g. google-gemini-cli/gemini-3-fast-preview or xai/grok-4-1-fast-non-reasoning" }),
+    guildId: Type.Optional(Type.String({ description: "Guild ID (optional)" })),
+  }),
+  Type.Object({
+    action: Type.Literal("set-think"),
+    level: Type.Union([
+      Type.Literal("off"),
+      Type.Literal("low"),
+      Type.Literal("medium"),
+      Type.Literal("high"),
+    ]),
+    guildId: Type.Optional(Type.String({ description: "Guild ID (optional)" })),
   }),
 ]);
 
@@ -219,14 +249,14 @@ const discordVoicePlugin = {
         const sessionId = sessionEntry.sessionId;
         const sessionFile = deps.resolveSessionFilePath(sessionId, sessionEntry, { agentId });
 
-        // Resolve model - use voice-specific model if configured, otherwise default
-        const modelRef = cfg.model || `${deps.DEFAULT_PROVIDER}/${deps.DEFAULT_MODEL}`;
+        // Session overrides (from /voice set-model, set-think) take precedence over config
+        const session = ensureVoiceManager().getSession(guildId);
+        const modelRef = session?.modelOverride ?? cfg.model ?? `${deps.DEFAULT_PROVIDER}/${deps.DEFAULT_MODEL}`;
         const slashIndex = modelRef.indexOf("/");
         const provider = slashIndex === -1 ? deps.DEFAULT_PROVIDER : modelRef.slice(0, slashIndex);
         const model = slashIndex === -1 ? modelRef : modelRef.slice(slashIndex + 1);
 
-        // Resolve thinking level - use voice-specific level if configured (default to "off" for speed)
-        const thinkLevel = cfg.thinkLevel || "off";
+        const thinkLevel = (session?.thinkLevelOverride ?? cfg.thinkLevel ?? "off") as "off" | "low" | "medium" | "high";
 
         // Resolve agent identity
         const identity = deps.resolveAgentIdentity(coreConfig, agentId);
@@ -386,16 +416,185 @@ const discordVoicePlugin = {
       }
     });
 
-    api.registerGatewayMethod("discord-voice.status", async ({ respond }) => {
+    api.registerGatewayMethod("discord-voice.status", async ({ params, respond }) => {
       try {
         const vm = ensureVoiceManager();
-        const sessions = vm.getAllSessions().map((s) => ({
-          guildId: s.guildId,
-          channelId: s.channelId,
-          speaking: s.speaking,
-          usersListening: s.userAudioStates.size,
-        }));
-        respond(true, { sessions });
+        const p = params as { guildId?: string } | null;
+        let guildId = p?.guildId;
+        const allSessions = vm.getAllSessions();
+        if (!guildId && allSessions.length > 0) guildId = allSessions[0].guildId;
+        const sessions = allSessions
+          .filter((s) => !guildId || s.guildId === guildId)
+          .map((s) => {
+            const stt = vm.getSttProviderInfo(s);
+            const tts = vm.getTtsProviderInfo(s);
+            const effectiveModel = s.modelOverride ?? cfg.model ?? "default";
+            const effectiveThink = s.thinkLevelOverride ?? cfg.thinkLevel ?? "off";
+            return {
+              guildId: s.guildId,
+              channelId: s.channelId,
+              channelName: s.channelName,
+              speaking: s.speaking,
+              usersListening: s.userAudioStates.size,
+              sttProvider: stt.provider,
+              sttModel: stt.model,
+              ttsProvider: tts.provider,
+              ttsModel: tts.model,
+              model: effectiveModel,
+              thinkLevel: effectiveThink,
+            };
+          });
+        const availableModels = getAvailableModels(api.config as Record<string, unknown>);
+        respond(true, { sessions, config: { model: cfg.model, thinkLevel: cfg.thinkLevel, sttProvider: cfg.sttProvider, ttsProvider: cfg.ttsProvider }, availableModels });
+      } catch (error) {
+        respond(false, { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    api.registerGatewayMethod("discord-voice.set-stt", async ({ params, respond }) => {
+      try {
+        const p = params as { guildId?: string; provider?: string } | null;
+        const provider = p?.provider;
+        if (!provider) {
+          respond(false, { error: "provider required" });
+          return;
+        }
+        const valid = ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"];
+        if (!valid.includes(provider)) {
+          respond(false, { error: `Invalid provider. Valid: ${valid.join(", ")}` });
+          return;
+        }
+        const vm = ensureVoiceManager();
+        let guildId = p?.guildId;
+        if (!guildId) {
+          const sessions = vm.getAllSessions();
+          if (sessions.length === 0) {
+            respond(false, { error: "Not in any voice channel" });
+            return;
+          }
+          guildId = sessions[0].guildId;
+        }
+        const ok = vm.setVoiceConfig(guildId, {
+          sttProvider: provider as DiscordVoiceConfig["sttProvider"],
+        });
+        respond(ok, ok ? { sttProvider: provider, guildId } : { error: "Session not found" });
+      } catch (error) {
+        respond(false, { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    api.registerGatewayMethod("discord-voice.set-tts", async ({ params, respond }) => {
+      try {
+        const p = params as { guildId?: string; provider?: string } | null;
+        const provider = p?.provider;
+        if (!provider) {
+          respond(false, { error: "provider required" });
+          return;
+        }
+        const valid = ["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"];
+        if (!valid.includes(provider)) {
+          respond(false, { error: `Invalid provider. Valid: ${valid.join(", ")}` });
+          return;
+        }
+        const vm = ensureVoiceManager();
+        let guildId = p?.guildId;
+        if (!guildId) {
+          const sessions = vm.getAllSessions();
+          if (sessions.length === 0) {
+            respond(false, { error: "Not in any voice channel" });
+            return;
+          }
+          guildId = sessions[0].guildId;
+        }
+        const ok = vm.setVoiceConfig(guildId, {
+          ttsProvider: provider as DiscordVoiceConfig["ttsProvider"],
+        });
+        respond(ok, ok ? { ttsProvider: provider, guildId } : { error: "Session not found" });
+      } catch (error) {
+        respond(false, { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    api.registerGatewayMethod("discord-voice.set-model", async ({ params, respond }) => {
+      try {
+        const p = params as { guildId?: string; model?: string } | null;
+        const model = p?.model;
+        if (!model || typeof model !== "string" || !model.trim()) {
+          respond(false, { error: "model required (e.g. google-gemini-cli/gemini-3-fast-preview)" });
+          return;
+        }
+        const vm = ensureVoiceManager();
+        let guildId = p?.guildId;
+        if (!guildId) {
+          const sessions = vm.getAllSessions();
+          if (sessions.length === 0) {
+            respond(false, { error: "Not in any voice channel" });
+            return;
+          }
+          guildId = sessions[0].guildId;
+        }
+        const ok = vm.setVoiceConfig(guildId, { model: model.trim() });
+        const available = getAvailableModels(api.config as Record<string, unknown>);
+        respond(ok, ok ? { model: model.trim(), guildId, availableModels: available } : { error: "Session not found" });
+      } catch (error) {
+        respond(false, { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    api.registerGatewayMethod("discord-voice.set-think", async ({ params, respond }) => {
+      try {
+        const p = params as { guildId?: string; level?: string } | null;
+        const level = p?.level;
+        if (!level) {
+          respond(false, { error: "level required: off, low, medium, high" });
+          return;
+        }
+        const valid = ["off", "low", "medium", "high"] as const;
+        if (!valid.includes(level as typeof valid[number])) {
+          respond(false, { error: `Invalid level. Valid: ${valid.join(", ")}` });
+          return;
+        }
+        const vm = ensureVoiceManager();
+        let guildId = p?.guildId;
+        if (!guildId) {
+          const sessions = vm.getAllSessions();
+          if (sessions.length === 0) {
+            respond(false, { error: "Not in any voice channel" });
+            return;
+          }
+          guildId = sessions[0].guildId;
+        }
+        const ok = vm.setVoiceConfig(guildId, { thinkLevel: level as typeof valid[number] });
+        respond(ok, ok ? { thinkLevel: level, guildId } : { error: "Session not found" });
+      } catch (error) {
+        respond(false, { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    api.registerGatewayMethod("discord-voice.models", async ({ respond }) => {
+      try {
+        const models = getAvailableModels(api.config as Record<string, unknown>);
+        respond(true, { availableModels: models });
+      } catch (error) {
+        respond(false, { error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    api.registerGatewayMethod("discord-voice.reset-fallback", async ({ params, respond }) => {
+      try {
+        const vm = ensureVoiceManager();
+        const p = params as { guildId?: string } | null;
+        let guildId = p?.guildId;
+        if (!guildId) {
+          const sessions = vm.getAllSessions();
+          if (sessions.length === 0) {
+            respond(true, { reset: false, reason: "Not in any voice channel" });
+            return;
+          }
+          guildId = sessions[0].guildId;
+        }
+        const reset = vm.resetFallbacks(guildId);
+        respond(true, { reset, guildId });
       } catch (error) {
         respond(false, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -461,13 +660,99 @@ const discordVoicePlugin = {
             }
 
             case "status": {
-              const sessions = vm.getAllSessions().map((s) => ({
-                guildId: s.guildId,
-                channelId: s.channelId,
-                speaking: s.speaking,
-                usersListening: s.userAudioStates.size,
-              }));
-              return json({ sessions });
+              const sessions = vm.getAllSessions().map((s) => {
+                const stt = vm.getSttProviderInfo(s);
+                const tts = vm.getTtsProviderInfo(s);
+                return {
+                  guildId: s.guildId,
+                  channelId: s.channelId,
+                  channelName: s.channelName,
+                  speaking: s.speaking,
+                  usersListening: s.userAudioStates.size,
+                  sttProvider: stt.provider,
+                  sttModel: stt.model,
+                  ttsProvider: tts.provider,
+                  ttsModel: tts.model,
+                  model: s.modelOverride ?? cfg.model ?? "default",
+                  thinkLevel: s.thinkLevelOverride ?? cfg.thinkLevel ?? "off",
+                };
+              });
+              const availableModels = getAvailableModels(api.config as Record<string, unknown>);
+              return json({ sessions, availableModels });
+            }
+
+            case "set-stt": {
+              const provider = (p as { provider?: string }).provider;
+              if (!provider) throw new Error("provider required");
+              const valid = ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"];
+              if (!valid.includes(provider)) throw new Error(`Invalid provider. Valid: ${valid.join(", ")}`);
+              let guildId = (p as { guildId?: string }).guildId;
+              if (!guildId) {
+                const sessions = vm.getAllSessions();
+                if (sessions.length === 0) throw new Error("Not in any voice channel");
+                guildId = sessions[0].guildId;
+              }
+              const ok = vm.setVoiceConfig(guildId, {
+                sttProvider: provider as DiscordVoiceConfig["sttProvider"],
+              });
+              return json(ok ? { sttProvider: provider, guildId } : { error: "Session not found" });
+            }
+
+            case "set-tts": {
+              const provider = (p as { provider?: string }).provider;
+              if (!provider) throw new Error("provider required");
+              const valid = ["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"];
+              if (!valid.includes(provider)) throw new Error(`Invalid provider. Valid: ${valid.join(", ")}`);
+              let guildId = (p as { guildId?: string }).guildId;
+              if (!guildId) {
+                const sessions = vm.getAllSessions();
+                if (sessions.length === 0) throw new Error("Not in any voice channel");
+                guildId = sessions[0].guildId;
+              }
+              const ok = vm.setVoiceConfig(guildId, {
+                ttsProvider: provider as DiscordVoiceConfig["ttsProvider"],
+              });
+              return json(ok ? { ttsProvider: provider, guildId } : { error: "Session not found" });
+            }
+
+            case "set-model": {
+              const model = (p as { model?: string }).model;
+              if (!model || typeof model !== "string" || !model.trim()) throw new Error("model required");
+              let guildId = (p as { guildId?: string }).guildId;
+              if (!guildId) {
+                const sessions = vm.getAllSessions();
+                if (sessions.length === 0) throw new Error("Not in any voice channel");
+                guildId = sessions[0].guildId;
+              }
+              const ok = vm.setVoiceConfig(guildId, { model: model.trim() });
+              const available = getAvailableModels(api.config as Record<string, unknown>);
+              return json(ok ? { model: model.trim(), guildId, availableModels: available } : { error: "Session not found" });
+            }
+
+            case "set-think": {
+              const level = (p as { level?: string }).level;
+              if (!level) throw new Error("level required: off, low, medium, high");
+              const valid = ["off", "low", "medium", "high"];
+              if (!valid.includes(level)) throw new Error(`Invalid level. Valid: ${valid.join(", ")}`);
+              let guildId = (p as { guildId?: string }).guildId;
+              if (!guildId) {
+                const sessions = vm.getAllSessions();
+                if (sessions.length === 0) throw new Error("Not in any voice channel");
+                guildId = sessions[0].guildId;
+              }
+              const ok = vm.setVoiceConfig(guildId, { thinkLevel: level as "off" | "low" | "medium" | "high" });
+              return json(ok ? { thinkLevel: level, guildId } : { error: "Session not found" });
+            }
+
+            case "reset-fallback": {
+              let guildId = p.guildId;
+              if (!guildId) {
+                const sessions = vm.getAllSessions();
+                if (sessions.length === 0) return json({ reset: false, reason: "Not in any voice channel" });
+                guildId = sessions[0].guildId;
+              }
+              const reset = vm.resetFallbacks(guildId);
+              return json({ reset, guildId });
             }
 
             default:
@@ -532,7 +817,7 @@ const discordVoicePlugin = {
 
         voiceCmd
           .command("status")
-          .description("Show voice connection status")
+          .description("Show voice connection status and providers")
           .action(() => {
             const vm = ensureVoiceManager();
             const sessions = vm.getAllSessions();
@@ -542,12 +827,132 @@ const discordVoicePlugin = {
               return;
             }
 
+            const models = getAvailableModels(api.config as Record<string, unknown>);
+            if (models.length > 0) {
+              console.log("Available models:", models.join(", "));
+            }
+
             for (const s of sessions) {
+              const stt = vm.getSttProviderInfo(s);
+              const tts = vm.getTtsProviderInfo(s);
+              const model = s.modelOverride ?? cfg.model ?? "default";
+              const think = s.thinkLevelOverride ?? cfg.thinkLevel ?? "off";
               console.log(`Guild: ${s.guildId}`);
-              console.log(`  Channel: ${s.channelId}`);
+              console.log(`  Channel: ${s.channelId} ${s.channelName ? `(${s.channelName})` : ""}`);
               console.log(`  Speaking: ${s.speaking}`);
               console.log(`  Users listening: ${s.userAudioStates.size}`);
+              console.log(`  STT: ${stt.provider} / ${stt.model}`);
+              console.log(`  TTS: ${tts.provider} / ${tts.model}`);
+              console.log(`  Model: ${model}, Think: ${think}`);
             }
+          });
+
+        voiceCmd
+          .command("set-stt")
+          .description("Set STT provider for current session")
+          .argument("<provider>", "whisper | gpt4o-mini | gpt4o-transcribe | gpt4o-transcribe-diarize | deepgram | local-whisper | wyoming-whisper")
+          .option("-g, --guild <guildId>", "Guild ID")
+          .action(async (provider: string, opts: { guild?: string }) => {
+            const vm = ensureVoiceManager();
+            const guildId = opts.guild || vm.getAllSessions()[0]?.guildId;
+            if (!guildId) {
+              console.log("Not in any voice channel");
+              return;
+            }
+            const valid = ["whisper", "gpt4o-mini", "gpt4o-transcribe", "gpt4o-transcribe-diarize", "deepgram", "local-whisper", "wyoming-whisper"];
+            if (!valid.includes(provider)) {
+              console.error(`Invalid provider. Valid: ${valid.join(", ")}`);
+              return;
+            }
+            const ok = vm.setVoiceConfig(guildId, {
+              sttProvider: provider as DiscordVoiceConfig["sttProvider"],
+            });
+            console.log(ok ? `STT provider set to ${provider}` : "Session not found");
+          });
+
+        voiceCmd
+          .command("set-tts")
+          .description("Set TTS provider for current session")
+          .argument("<provider>", "openai | elevenlabs | deepgram | polly | kokoro | edge")
+          .option("-g, --guild <guildId>", "Guild ID")
+          .action(async (provider: string, opts: { guild?: string }) => {
+            const vm = ensureVoiceManager();
+            const guildId = opts.guild || vm.getAllSessions()[0]?.guildId;
+            if (!guildId) {
+              console.log("Not in any voice channel");
+              return;
+            }
+            const valid = ["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"];
+            if (!valid.includes(provider)) {
+              console.error(`Invalid provider. Valid: ${valid.join(", ")}`);
+              return;
+            }
+            const ok = vm.setVoiceConfig(guildId, {
+              ttsProvider: provider as DiscordVoiceConfig["ttsProvider"],
+            });
+            console.log(ok ? `TTS provider set to ${provider}` : "Session not found");
+          });
+
+        voiceCmd
+          .command("set-model")
+          .description("Set LLM model for voice responses (e.g. google-gemini-cli/gemini-3-fast-preview)")
+          .argument("<model>", "Model ID: provider/model-name")
+          .option("-g, --guild <guildId>", "Guild ID")
+          .action(async (model: string, opts: { guild?: string }) => {
+            const vm = ensureVoiceManager();
+            const guildId = opts.guild || vm.getAllSessions()[0]?.guildId;
+            if (!guildId) {
+              console.log("Not in any voice channel");
+              return;
+            }
+            const ok = vm.setVoiceConfig(guildId, { model: model.trim() });
+            if (ok) {
+              const available = getAvailableModels(api.config as Record<string, unknown>);
+              console.log(`Model set to ${model}`);
+              if (available.length > 0 && !available.includes(model)) {
+                console.log("Note: Available models in config:", available.join(", "));
+              }
+            } else {
+              console.log("Session not found");
+            }
+          });
+
+        voiceCmd
+          .command("set-think")
+          .description("Set thinking level (off | low | medium | high)")
+          .argument("<level>", "off | low | medium | high")
+          .option("-g, --guild <guildId>", "Guild ID")
+          .action(async (level: string, opts: { guild?: string }) => {
+            const vm = ensureVoiceManager();
+            const guildId = opts.guild || vm.getAllSessions()[0]?.guildId;
+            if (!guildId) {
+              console.log("Not in any voice channel");
+              return;
+            }
+            const valid = ["off", "low", "medium", "high"];
+            if (!valid.includes(level)) {
+              console.error(`Invalid level. Valid: ${valid.join(", ")}`);
+              return;
+            }
+            const ok = vm.setVoiceConfig(guildId, { thinkLevel: level as "off" | "low" | "medium" | "high" });
+            console.log(ok ? `Think level set to ${level}` : "Session not found");
+          });
+
+        voiceCmd
+          .command("reset-fallback")
+          .description("Reset STT/TTS fallbacks – next request will try primary providers")
+          .option("-g, --guild <guildId>", "Guild ID")
+          .action(async (opts: { guild?: string }) => {
+            const vm = ensureVoiceManager();
+            const guildId = opts.guild || vm.getAllSessions()[0]?.guildId;
+
+            if (!guildId) {
+              console.log("Not in any voice channel");
+              return;
+            }
+
+            const reset = vm.resetFallbacks(guildId);
+            console.log(reset ? `Reset fallbacks for guild ${guildId}` : `No active fallbacks for guild ${guildId}`);
           });
       },
       { commands: ["voice"] }
