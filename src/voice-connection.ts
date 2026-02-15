@@ -725,13 +725,19 @@ export class VoiceConnectionManager {
       let transcribedText = "";
       const fallbackList = this.config.sttFallbackProviders ?? [];
 
+      const primaryIsWyoming = this.config.sttProvider === "wyoming-whisper";
+
       const tryFallbacks = async (): Promise<string> => {
         for (const provider of fallbackList) {
           try {
             const r = await this.tryTranscribeWithProvider(audioBuffer, 48000, provider);
             if (r.text?.trim()) {
-              session.fallbackSttProvider = provider;
-              this.logger.info(`[discord-voice] Using fallback STT: ${provider} (session will stay on fallback)`);
+              if (!primaryIsWyoming) {
+                session.fallbackSttProvider = provider;
+                this.logger.info(`[discord-voice] Using fallback STT: ${provider} (session will stay on fallback)`);
+              } else {
+                this.logger.info(`[discord-voice] Using fallback STT: ${provider}`);
+              }
               return r.text;
             }
           } catch (fbErr) {
@@ -741,7 +747,8 @@ export class VoiceConnectionManager {
         return "";
       };
 
-      if (session.fallbackSttProvider) {
+      // Wyoming-whisper: always try primary first (service may be temporarily down). Others: stick to fallback once switched.
+      if (session.fallbackSttProvider && !primaryIsWyoming) {
         try {
           const r = await this.tryTranscribeWithProvider(audioBuffer, 48000, session.fallbackSttProvider);
           transcribedText = r.text ?? "";
