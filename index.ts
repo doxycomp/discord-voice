@@ -223,10 +223,10 @@ const discordVoicePlugin = {
       }
     };
 
-    // Prefer OpenClaw's Discord client when available (single gateway → voice Ready works; two clients often breaks voice)
-    const existingClient = api.runtime?.discord?.getClient?.();
-    if (existingClient) {
-      discordClient = existingClient;
+    // Prefer OpenClaw's Discord client (single gateway → voice Ready works). getClient() may be null at register
+    // if the Discord gateway starts after this plugin; retry a few times before creating a second connection.
+    const attachToOpenClawClient = (client: Client) => {
+      discordClient = client;
       if (discordClient.isReady()) {
         clientReady = true;
         api.logger.info(
@@ -241,20 +241,47 @@ const discordVoicePlugin = {
           void runAutoJoinIfConfigured();
         });
       }
+    };
+
+    const existingClient = api.runtime?.discord?.getClient?.();
+    if (existingClient) {
+      attachToOpenClawClient(existingClient);
     } else {
-      // Fallback: own client (can cause "bot joins then leaves" if OpenClaw also has a client on same token)
-      discordClient = new Client({
-        intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
-      });
-      api.logger.info("[discord-voice] Using plugin's own Discord client (OpenClaw runtime.discord not available).");
-      discordClient.once("ready", () => {
-        clientReady = true;
-        api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
-        void runAutoJoinIfConfigured();
-      });
-      discordClient.login(discordToken).catch((err) => {
-        api.logger.error(`[discord-voice] Failed to login: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      // Discord gateway may start after us; wait for it so we don't create a second client (same token → voice never Ready)
+      const maxWaitMs = 18_000;
+      const intervalMs = 2_000;
+      let elapsed = 0;
+      api.logger.info("[discord-voice] OpenClaw Discord client not ready yet; will retry for up to 18s to use it (avoids two connections).");
+      const id = setInterval(() => {
+        if (discordClient) {
+          clearInterval(id);
+          return;
+        }
+        const client = api.runtime?.discord?.getClient?.();
+        if (client) {
+          clearInterval(id);
+          attachToOpenClawClient(client);
+          return;
+        }
+        elapsed += intervalMs;
+        if (elapsed >= maxWaitMs) {
+          clearInterval(id);
+          discordClient = new Client({
+            intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
+          });
+          api.logger.info(
+            "[discord-voice] Using plugin's own Discord client (OpenClaw runtime.discord still not available after 18s).",
+          );
+          discordClient.once("ready", () => {
+            clientReady = true;
+            api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
+            void runAutoJoinIfConfigured();
+          });
+          discordClient.login(discordToken).catch((err) => {
+            api.logger.error(`[discord-voice] Failed to login: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
+      }, intervalMs);
     }
 
     /**
