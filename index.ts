@@ -243,21 +243,26 @@ const discordVoicePlugin = {
       }
     };
 
-    const existingClient = api.runtime?.discord?.getClient?.();
+    const tryGetClient = (): Client | null =>
+      api.runtime?.discord?.getClient?.() ?? api.runtime?.discord?.getClient?.("default") ?? null;
+
+    const existingClient = tryGetClient();
     if (existingClient) {
       attachToOpenClawClient(existingClient);
     } else {
-      // Discord gateway may start after us; wait for it so we don't create a second client (same token → voice never Ready)
+      // Discord gateway may start after us; wait so we don't create a second client (same token → voice never Ready)
       const maxWaitMs = 18_000;
       const intervalMs = 2_000;
       let elapsed = 0;
-      api.logger.info("[discord-voice] OpenClaw Discord client not ready yet; will retry for up to 18s to use it (avoids two connections).");
+      api.logger.info(
+        "[discord-voice] OpenClaw Discord client not available; will retry getClient() / getClient('default') for 18s.",
+      );
       const id = setInterval(() => {
         if (discordClient) {
           clearInterval(id);
           return;
         }
-        const client = api.runtime?.discord?.getClient?.();
+        const client = tryGetClient();
         if (client) {
           clearInterval(id);
           attachToOpenClawClient(client);
@@ -269,8 +274,10 @@ const discordVoicePlugin = {
           discordClient = new Client({
             intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
           });
-          api.logger.info(
-            "[discord-voice] Using plugin's own Discord client (OpenClaw runtime.discord still not available after 18s).",
+          api.logger.warn(
+            "[discord-voice] Using plugin's own Discord client (runtime.discord.getClient() never returned a client). " +
+              "Two connections with the same token cause voice to never reach Ready → bot will leave after ~30s. " +
+              "OpenClaw must expose the Discord client via api.runtime.discord.getClient() for voice to work.",
           );
           discordClient.once("ready", () => {
             clientReady = true;
