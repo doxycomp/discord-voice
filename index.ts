@@ -177,41 +177,85 @@ const discordVoicePlugin = {
       return;
     }
 
-    // Create our own Discord client with voice intents
-    discordClient = new Client({
-      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
-    });
+    // Shared auto-join logic (used for both own client and OpenClaw's client)
+    const runAutoJoinIfConfigured = async () => {
+      if (!cfg.autoJoinChannel || !discordClient) return;
+      const doAutoJoin = async (attempt: number) => {
+        api.logger.info(
+          `[discord-voice] Auto-join: channel ${cfg.autoJoinChannel} (attempt ${attempt}), waiting 2s for init…`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    discordClient.once("ready", async () => {
-      clientReady = true;
-      api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
+        const channel = await discordClient!.channels.fetch(cfg.autoJoinChannel!);
+        if (!channel) {
+          api.logger.warn(
+            `[discord-voice] Auto-join: channel ${cfg.autoJoinChannel} not found (no access or invalid ID)`,
+          );
+          return;
+        }
+        if (!channel.isVoiceBased()) {
+          api.logger.warn(`[discord-voice] Auto-join: channel ${cfg.autoJoinChannel} is not a voice channel`);
+          return;
+        }
+        api.logger.info(
+          `[discord-voice] Auto-join: fetching channel ok, joining "${channel.name}" (${channel.guild.name})…`,
+        );
+        const vm = ensureVoiceManager();
+        await vm.join(channel as VoiceBasedChannel);
+        api.logger.info(`[discord-voice] Auto-joined voice channel: ${channel.name}`);
+      };
 
-      // Auto-join channel if configured
-      if (cfg.autoJoinChannel) {
+      try {
+        await doAutoJoin(1);
+      } catch (error) {
+        api.logger.warn(
+          `[discord-voice] Auto-join failed (first try): ${error instanceof Error ? error.message : String(error)}`,
+        );
         try {
-          api.logger.info(`[discord-voice] Auto-joining channel ${cfg.autoJoinChannel}`);
-          // Wait a moment for everything to initialize
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          const channel = await discordClient!.channels.fetch(cfg.autoJoinChannel);
-          if (channel && channel.isVoiceBased()) {
-            const vm = ensureVoiceManager();
-            await vm.join(channel as VoiceBasedChannel);
-            api.logger.info(`[discord-voice] Auto-joined voice channel: ${channel.name}`);
-          } else {
-            api.logger.warn(`[discord-voice] Auto-join channel ${cfg.autoJoinChannel} is not a voice channel`);
-          }
-        } catch (error) {
+          api.logger.info(`[discord-voice] Auto-join: retrying in 5s…`);
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await doAutoJoin(2);
+        } catch (retryError) {
           api.logger.error(
-            `[discord-voice] Failed to auto-join: ${error instanceof Error ? error.message : String(error)}`,
+            `[discord-voice] Auto-join failed after retry: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
           );
         }
       }
-    });
+    };
 
-    discordClient.login(discordToken).catch((err) => {
-      api.logger.error(`[discord-voice] Failed to login: ${err instanceof Error ? err.message : String(err)}`);
-    });
+    // Prefer OpenClaw's Discord client when available (single gateway → voice Ready works; two clients often breaks voice)
+    const existingClient = api.runtime?.discord?.getClient?.();
+    if (existingClient) {
+      discordClient = existingClient;
+      if (discordClient.isReady()) {
+        clientReady = true;
+        api.logger.info(
+          "[discord-voice] Using OpenClaw's Discord client (already ready); one connection for gateway + voice.",
+        );
+        void runAutoJoinIfConfigured();
+      } else {
+        api.logger.info("[discord-voice] Using OpenClaw's Discord client (waiting for ready).");
+        discordClient.once("ready", () => {
+          clientReady = true;
+          api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
+          void runAutoJoinIfConfigured();
+        });
+      }
+    } else {
+      // Fallback: own client (can cause "bot joins then leaves" if OpenClaw also has a client on same token)
+      discordClient = new Client({
+        intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
+      });
+      api.logger.info("[discord-voice] Using plugin's own Discord client (OpenClaw runtime.discord not available).");
+      discordClient.once("ready", () => {
+        clientReady = true;
+        api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
+        void runAutoJoinIfConfigured();
+      });
+      discordClient.login(discordToken).catch((err) => {
+        api.logger.error(`[discord-voice] Failed to login: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
 
     /**
      * Handle transcribed speech - route to agent and get response

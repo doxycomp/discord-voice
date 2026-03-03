@@ -130,6 +130,11 @@
         "description": "Connection health check interval in ms"
       },
       "autoJoinChannel": { "type": "string", "description": "Voice channel ID to auto-join on startup" },
+      "voiceReadyTimeoutMs": {
+        "type": "number",
+        "default": 30000,
+        "description": "Timeout in ms for voice connection to reach Ready; increase if join often times out"
+      },
       "openclawRoot": {
         "type": "string",
         "description": "OpenClaw package root if auto-detection fails (path containing dist/extensionAPI.js)"

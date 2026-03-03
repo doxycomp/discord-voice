@@ -131,6 +131,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `maxRecordingMs`       | number            | `30000`                               | Max recording length (ms)                                                                                                                                                                     |
 | `heartbeatIntervalMs`  | number            | `30000`                               | Connection health check interval                                                                                                                                                              |
 | `autoJoinChannel`      | string            | `undefined`                           | Channel ID to auto-join on startup                                                                                                                                                            |
+| `voiceReadyTimeoutMs` | number            | `30000`                               | Timeout (ms) for voice connection to reach Ready; increase if join often times out (e.g. after OpenClaw updates or on slow networks)                                                          |
 | `openclawRoot`         | string            | `undefined`                           | OpenClaw package root if auto-detection fails                                                                                                                                                 |
 | `thinkingSound`        | object            | see [Thinking Sound](#thinking-sound) | Sound played while processing                                                                                                                                                                 |
 | `noEmojiHint`          | boolean \| string | `true`                                | Inject TTS hint into agent prompt; when set, emojis are also stripped from responses before TTS (avoids Kokoro reading them aloud)                                                            |
@@ -320,6 +321,14 @@ When the primary STT fails (quota, rate limit, or Wyoming unreachable), fallback
   wyomingWhisper: { host: "192.168.1.10", port: 10300 },
 }
 ```
+
+### Voice join fails or times out / bot joins then leaves after ~30s
+
+The plugin **prefers OpenClaw's Discord client** when available so there is only one gateway (avoids "joins then leaves"). Otherwise it uses its **own Discord client** and the standard `guild.voiceAdapterCreator` (discord.js), not OpenClaw’s built-in Carbon voice path. If auto-join or manual join fails with a timeout:
+
+- Check logs: you should see `[discord-voice] Auto-join: …` and `Waiting for voice Ready (timeout …ms)`. If Ready never completes, increase `voiceReadyTimeoutMs` (e.g. `45000`).
+- Ensure UDP is allowed (Discord voice uses UDP); firewalls or strict NAT can cause the connection to never reach Ready.
+- Related OpenClaw issues (built-in voice, different code path): [openclaw#23283](https://github.com/openclaw/openclaw/issues/23283), [openclaw#23982](https://github.com/openclaw/openclaw/issues/23982).
 
 ## Usage
 

@@ -250,14 +250,20 @@ export class VoiceConnectionManager {
 
     this.sessions.set(channel.guildId, session);
 
-    // Wait for the connection to be ready
+    // Wait for the connection to be ready (configurable; default 30s for slow networks)
+    const readyTimeoutMs = this.config.voiceReadyTimeoutMs ?? 30_000;
+    this.logger.info(`[discord-voice] Waiting for voice Ready (timeout ${readyTimeoutMs}ms)...`);
     try {
-      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+      await entersState(connection, VoiceConnectionStatus.Ready, readyTimeoutMs);
       this.logger.info(`[discord-voice] Joined voice channel ${channel.name} in ${channel.guild.name}`);
     } catch (error) {
       connection.destroy();
       this.sessions.delete(channel.guildId);
-      throw new Error(`Failed to join voice channel: ${error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[discord-voice] Voice connection did not reach Ready within ${readyTimeoutMs}ms. If this persists, try increasing voiceReadyTimeoutMs or check firewall/UDP.`,
+      );
+      throw new Error(`Failed to join voice channel: ${msg}`);
     }
 
     // Start listening to users
@@ -344,7 +350,8 @@ export class VoiceConnectionManager {
       session.player = newPlayer;
 
       // Wait for ready
-      await entersState(newConnection, VoiceConnectionStatus.Ready, 20_000);
+      const readyTimeoutMs = this.config.voiceReadyTimeoutMs ?? 30_000;
+      await entersState(newConnection, VoiceConnectionStatus.Ready, readyTimeoutMs);
 
       session.reconnecting = false;
       session.lastHeartbeat = Date.now();
