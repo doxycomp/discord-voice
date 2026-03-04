@@ -325,40 +325,17 @@ When the primary STT fails (quota, rate limit, or Wyoming unreachable), fallback
 }
 ```
 
-### Voice join fails or times out / bot joins then leaves after ~30s
+### Voice: join fails or never reaches Ready
 
-The plugin **prefers OpenClaw's Discord client** when available so there is only one gateway (avoids "joins then leaves"). Otherwise it uses its **own Discord client** and the standard `guild.voiceAdapterCreator` (discord.js), not OpenClaw’s built-in Carbon voice path. If auto-join or manual join fails with a timeout:
+- **Use @discordjs/voice 0.19.x with DAVE enabled.** In many environments the connection only reaches Ready when `daveEncryption` is true (or omitted); with DAVE disabled, the UDP handshake may never complete (Discord/library behavior).
+- Prefer a single Discord client: OpenClaw should expose the client via `api.runtime.discord.getClient()` so the plugin does not run a second client (two connections with the same token can prevent voice from reaching Ready).
+- **voiceDebug: true** enables @discordjs/voice debug logs (WebSocket/UDP). **voiceReadyTimeoutMs**: increase (e.g. 45000) if join often times out.
+- Allow outbound UDP; try `NODE_OPTIONS=--dns-result-order=ipv4first` if IPv6 causes issues. Minimal test: `node scripts/voice-test.mjs <TOKEN> <CHANNEL_ID>`.
+- This plugin uses `guild.voiceAdapterCreator` (standard discord.js). OpenClaw's built-in voice uses Carbon's `getGatewayAdapterCreator()`. See [openclaw#23283](https://github.com/openclaw/openclaw/issues/23283), [openclaw#23982](https://github.com/openclaw/openclaw/issues/23982) for Carbon adapter issues.
 
-- Check logs: you should see `[discord-voice] Auto-join: …` and `Waiting for voice Ready (timeout …ms)`. If Ready never completes, increase `voiceReadyTimeoutMs` (e.g. `45000`).
-- Ensure UDP is allowed (Discord voice uses UDP); firewalls or strict NAT can cause the connection to never reach Ready.
-- If the bot never reaches Ready (connecting → signalling) and the regular Discord app works, the cause may be environment-specific (UDP/NAT) or adapter-related. OpenClaw’s built-in voice uses Carbon’s `getGatewayAdapterCreator()`; this plugin uses `guild.voiceAdapterCreator` (same as a standalone discord.js bot). If issues persist, you can try pinning **@discordjs/voice** to `0.18.0` in package.json.
-**Troubleshooting checklist:**
+### DAVE: receive error DecryptionFailed (UnencryptedWhenPassthroughDisabled)
 
-| Was | Aktion |
-|-----|--------|
-| Logs | `Voice state: connecting → signalling` = UDP-Handshake fehlgeschlagen. |
-| voiceReadyTimeoutMs | Erhöhen (z. B. 45000), hilft nicht bei UDP-Fehlern. |
-| **voiceDebug** | `voiceDebug: true` in Plugin-Config – aktiviert Debug-Ausgaben von @discordjs/voice (WebSocket/UDP-Handshake) für die Fehlersuche. |
-| Zwei Discord-Clients | OpenClaw soll `getClient()` bereitstellen, sonst zweiter Client → Voice oft nie Ready. |
-| UDP / Firewall | Ausgehendes UDP erlauben; VM/Container: Bridge oder Host-Netz testen. |
-| IPv6 | Ohne IPv6: `NODE_OPTIONS=--dns-result-order=ipv4first` testen. |
-| @discordjs/voice | Bei Problemen in package.json auf `0.18.0` pinnen. |
-| Node-Version | Andere Version testen (z. B. Node 20 LTS vs 22). |
-| Minimaltest | `node scripts/voice-test.mjs <TOKEN> <CHANNEL_ID>` auf demselben Host – gleicher Fehler = Umgebung/Library. |
-| Anderer Server | Voice in anderem Discord-Server (andere Region) testen. |
-| Neuer Bot | Neue Discord-App + Bot anlegen und mit neuem Token testen. |
-| Tailscale/VPN | Ohne Tailscale/VPN testen (UDP-Antworten können sonst nicht beim Prozess ankommen). |
-
-Wenn trotzdem **connecting → signalling** bleibt (voiceDebug zeigt State code 1→6, `udp:false`, kein Error-Event), die Discord-App aber funktioniert: Bitte ein Issue bei [discordjs/discord.js](https://github.com/discordjs/discord.js/issues) (Package: voice) mit voiceDebug-Log, OS/Node-Version und den bereits getesteten Schritten (IPv4-first, DAVE, 0.18/0.19, Minimaltest, ohne Tailscale).
-
-### DAVE: Incoming audio fails with DecryptionFailed (UnencryptedWhenPassthroughDisabled)
-
-With **DAVE** enabled (`daveEncryption` true or omitted), the bot can reach Ready and stay in the channel, but when someone speaks you may see many `Failed to decrypt a packet` logs and then `AudioReceiveStream error … DecryptionFailed(UnencryptedWhenPassthroughDisabled)`. This happens when packets arrive unencrypted during the DAVE key-exchange window and the library rejects them. The plugin **automatically rejoins the channel once** when this error occurs to get a fresh DAVE session (same approach as [openclaw#25909](https://github.com/openclaw/openclaw/pull/25909)). If it keeps failing, try increasing `decryptionFailureTolerance` (e.g. `100`) or check [openclaw#23105](https://github.com/openclaw/openclaw/issues/23105) and upstream [discordjs/voice](https://github.com/discordjs/voice) for DAVE receive fixes.
-
-**Vergleich mit OpenClaw-Built-in (Discord Voice):**  
-OpenClaw nutzt in [src/discord/voice/manager.ts](https://github.com/openclaw/openclaw/blob/4242c5152f59c86b232b70dfcc0e869ed1487bba/src/discord/voice/manager.ts) den **Carbon-Client** und ruft `client.getPlugin("voice").getGatewayAdapterCreator(guildId)` auf – also **einen** Gateway (Carbon), und die Voice-Adapter sind an diesen gebunden. Zusätzlich übergibt OpenClaw `daveEncryption` und `decryptionFailureTolerance` an `joinVoiceChannel` (für @discordjs/voice 0.19 / DAVE). Unser Plugin nutzt **keinen** Carbon-Client (OpenClaw stellt `runtime.discord.getClient()` bei uns nicht bereit) und verwendet `channel.guild.voiceAdapterCreator` (Standard-discord.js). Wir können `getGatewayAdapterCreator` nicht verwenden, ohne den Carbon-Client; mit unserem eigenen Client ist `guild.voiceAdapterCreator` der passende Adapter. Die Issues [#23283](https://github.com/openclaw/openclaw/issues/23283) / [#23982](https://github.com/openclaw/openclaw/issues/23982) beziehen sich auf den **Carbon-Adapter** (Voice nie Ready); bei uns schlägt der **UDP-Handshake** in deiner Umgebung fehl (connecting → signalling), unabhängig vom Adapter.
-
-Related: [openclaw#23283](https://github.com/openclaw/openclaw/issues/23283), [openclaw#23982](https://github.com/openclaw/openclaw/issues/23982).
+When someone speaks, you may see `Failed to decrypt a packet` then `DecryptionFailed(UnencryptedWhenPassthroughDisabled)`. The plugin **automatically rejoins once** on this error to get a fresh DAVE session ([openclaw#25909](https://github.com/openclaw/openclaw/pull/25909)). If it keeps failing, try higher `decryptionFailureTolerance` or see [openclaw#23105](https://github.com/openclaw/openclaw/issues/23105), [discordjs/voice](https://github.com/discordjs/voice).
 
 ## Usage
 
