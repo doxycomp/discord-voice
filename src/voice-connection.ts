@@ -225,13 +225,21 @@ export class VoiceConnectionManager {
 
     this.ensureProviders();
 
+    const debugVoice = this.config.voiceDebug ?? false;
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: channel.guildId,
       adapterCreator: channel.guild.voiceAdapterCreator,
       selfDeaf: false, // We need to hear users
       selfMute: false,
+      debug: debugVoice,
     });
+
+    if (debugVoice) {
+      connection.on("debug", (message: string) =>
+        this.logger.info(`[discord-voice] voice: ${message}`),
+      );
+    }
 
     // Log every state transition to diagnose "never Ready"
     this.logger.info(`[discord-voice] Voice initial state: ${connection.state.status}`);
@@ -356,13 +364,20 @@ export class VoiceConnectionManager {
       await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
 
       // Create new connection
+      const debugVoice = this.config.voiceDebug ?? false;
       const newConnection = joinVoiceChannel({
         channelId: channel.id,
         guildId: channel.guildId,
         adapterCreator: channel.guild.voiceAdapterCreator,
         selfDeaf: false,
         selfMute: false,
+        debug: debugVoice,
       });
+      if (debugVoice) {
+        newConnection.on("debug", (message: string) =>
+          this.logger.info(`[discord-voice] voice: ${message}`),
+        );
+      }
 
       const newPlayer = createAudioPlayer();
       newConnection.subscribe(newPlayer);

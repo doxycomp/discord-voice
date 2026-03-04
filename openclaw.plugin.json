@@ -135,6 +135,11 @@
         "default": 30000,
         "description": "Timeout in ms for voice connection to reach Ready; increase if join often times out"
       },
+      "voiceDebug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable @discordjs/voice debug messages (WebSocket/UDP handshake) for troubleshooting"
+      },
       "openclawRoot": {
         "type": "string",
         "description": "OpenClaw package root if auto-detection fails (path containing dist/extensionAPI.js)"

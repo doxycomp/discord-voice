@@ -132,6 +132,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `heartbeatIntervalMs`  | number            | `30000`                               | Connection health check interval                                                                                                                                                              |
 | `autoJoinChannel`      | string            | `undefined`                           | Channel ID to auto-join on startup                                                                                                                                                            |
 | `voiceReadyTimeoutMs` | number            | `30000`                               | Timeout (ms) for voice connection to reach Ready; increase if join often times out (e.g. after OpenClaw updates or on slow networks)                                                          |
+| `voiceDebug`          | boolean           | `false`                               | Enable @discordjs/voice debug messages (WebSocket/UDP handshake) for troubleshooting                                                                                                          |
 | `openclawRoot`         | string            | `undefined`                           | OpenClaw package root if auto-detection fails                                                                                                                                                 |
 | `thinkingSound`        | object            | see [Thinking Sound](#thinking-sound) | Sound played while processing                                                                                                                                                                 |
 | `noEmojiHint`          | boolean \| string | `true`                                | Inject TTS hint into agent prompt; when set, emojis are also stripped from responses before TTS (avoids Kokoro reading them aloud)                                                            |
@@ -328,7 +329,24 @@ The plugin **prefers OpenClaw's Discord client** when available so there is only
 
 - Check logs: you should see `[discord-voice] Auto-join: …` and `Waiting for voice Ready (timeout …ms)`. If Ready never completes, increase `voiceReadyTimeoutMs` (e.g. `45000`).
 - Ensure UDP is allowed (Discord voice uses UDP); firewalls or strict NAT can cause the connection to never reach Ready.
-- Related OpenClaw issues (built-in voice, different code path): [openclaw#23283](https://github.com/openclaw/openclaw/issues/23283), [openclaw#23982](https://github.com/openclaw/openclaw/issues/23982).
+- If the bot never reaches Ready (connecting → signalling) and the regular Discord app works, the cause may be environment-specific (UDP/NAT) or adapter-related. OpenClaw’s built-in voice uses Carbon’s `getGatewayAdapterCreator()`; this plugin uses `guild.voiceAdapterCreator` (same as a standalone discord.js bot). If issues persist, you can try pinning **@discordjs/voice** to `0.18.0` in package.json.
+**Troubleshooting checklist:**
+
+| Was | Aktion |
+|-----|--------|
+| Logs | `Voice state: connecting → signalling` = UDP-Handshake fehlgeschlagen. |
+| voiceReadyTimeoutMs | Erhöhen (z. B. 45000), hilft nicht bei UDP-Fehlern. |
+| **voiceDebug** | `voiceDebug: true` in Plugin-Config – aktiviert Debug-Ausgaben von @discordjs/voice (WebSocket/UDP-Handshake) für die Fehlersuche. |
+| Zwei Discord-Clients | OpenClaw soll `getClient()` bereitstellen, sonst zweiter Client → Voice oft nie Ready. |
+| UDP / Firewall | Ausgehendes UDP erlauben; VM/Container: Bridge oder Host-Netz testen. |
+| IPv6 | Ohne IPv6: `NODE_OPTIONS=--dns-result-order=ipv4first` testen. |
+| @discordjs/voice | Bei Problemen in package.json auf `0.18.0` pinnen. |
+| Node-Version | Andere Version testen (z. B. Node 20 LTS vs 22). |
+| Minimaltest | `node scripts/voice-test.mjs <TOKEN> <CHANNEL_ID>` auf demselben Host – gleicher Fehler = Umgebung/Library. |
+| Anderer Server | Voice in anderem Discord-Server (andere Region) testen. |
+| Neuer Bot | Neue Discord-App + Bot anlegen und mit neuem Token testen. |
+
+Related: [openclaw#23283](https://github.com/openclaw/openclaw/issues/23283), [openclaw#23982](https://github.com/openclaw/openclaw/issues/23982).
 
 ## Usage
 

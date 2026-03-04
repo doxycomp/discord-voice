@@ -43,6 +43,8 @@ export interface DiscordVoiceConfig {
   autoJoinChannel?: string; // Channel ID to auto-join on startup
   /** Timeout in ms for voice connection to reach Ready (default 30000). Increase if join often times out. */
   voiceReadyTimeoutMs?: number;
+  /** If true, enable @discordjs/voice debug messages (WebSocket/UDP handshake etc.) for troubleshooting. */
+  voiceDebug?: boolean;
   heartbeatIntervalMs?: number; // Connection health check interval
   /** OpenClaw package root (if auto-detection fails); path to openclaw package dir containing dist/extensionAPI.js */
   openclawRoot?: string;
@@ -390,6 +392,7 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       const def = DEFAULT_CONFIG.voiceReadyTimeoutMs ?? 30_000;
       return typeof v === "number" && v > 0 ? v : def;
     })(),
+    voiceDebug: typeof obj["voiceDebug"] === "boolean" ? obj["voiceDebug"] : false,
     openclawRoot:
       typeof obj["openclawRoot"] === "string" && obj["openclawRoot"].trim() ? obj["openclawRoot"].trim() : undefined,
     heartbeatIntervalMs: (() => {

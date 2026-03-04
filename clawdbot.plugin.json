@@ -102,6 +102,7 @@
       },
       "autoJoinChannel": { "type": "string", "description": "Voice channel ID to auto-join on startup" },
       "voiceReadyTimeoutMs": { "type": "number", "default": 30000, "description": "Timeout in ms for voice Ready; increase if join times out" },
+      "voiceDebug": { "type": "boolean", "default": false, "description": "Enable voice library debug (WebSocket/UDP) for troubleshooting" },
       "openclawRoot": { "type": "string", "description": "OpenClaw package root if auto-detection fails" },
       "thinkingSound": {
         "type": "object",
