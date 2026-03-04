@@ -13,6 +13,7 @@
  */
 
 import crypto from "node:crypto";
+import dns from "node:dns";
 import { Type } from "@sinclair/typebox";
 import { Client, GatewayIntentBits, type VoiceBasedChannel } from "discord.js";
 
@@ -134,6 +135,16 @@ const discordVoicePlugin = {
   },
 
   register(api: PluginApi) {
+    // Prefer IPv4 for DNS so voice server UDP uses IPv4 (avoids udp:false when host has no IPv6)
+    try {
+      if (typeof (dns as { setDefaultResultOrder?: (order: string) => void }).setDefaultResultOrder === "function") {
+        (dns as { setDefaultResultOrder: (order: string) => void }).setDefaultResultOrder("ipv4first");
+        api.logger.info("[discord-voice] DNS result order set to ipv4first (Node 17+).");
+      }
+    } catch {
+      // ignore on older Node or unsupported env
+    }
+
     if (discordVoiceRegistered) {
       api.logger.warn(
         "[discord-voice] Plugin already registered (likely loaded via both openclaw and clawdbot extensions). Skipping duplicate init to prevent double processing.",
