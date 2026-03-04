@@ -233,12 +233,23 @@ export class VoiceConnectionManager {
       selfMute: false,
     });
 
-    // Log every state transition to diagnose "never Ready" (stuck at Signalling/Connecting often = UDP/firewall)
+    // Log every state transition to diagnose "never Ready"
     this.logger.info(`[discord-voice] Voice initial state: ${connection.state.status}`);
     connection.on("stateChange", (oldState, newState) => {
-      this.logger.info(
-        `[discord-voice] Voice state: ${oldState.status} → ${newState.status}`,
-      );
+      const prev = oldState.status;
+      const next = newState.status;
+      this.logger.info(`[discord-voice] Voice state: ${prev} → ${next}`);
+      // connecting → signalling usually means UDP to Discord voice server failed (firewall/NAT/route)
+      if (prev === VoiceConnectionStatus.Connecting && next === VoiceConnectionStatus.Signalling) {
+        this.logger.warn(
+          "[discord-voice] Voice fell back from Connecting to Signalling (UDP handshake likely failed). Check outbound UDP, NAT, and that the host can reach Discord voice IPs.",
+        );
+      }
+      // Log disconnect reason if present (AdapterUnavailable, WebSocketClose, etc.)
+      const stateWithReason = newState as { status: string; reason?: number };
+      if (stateWithReason.reason !== undefined) {
+        this.logger.info(`[discord-voice] Voice disconnect reason: ${stateWithReason.reason}`);
+      }
     });
 
     const player = createAudioPlayer();
@@ -292,10 +303,13 @@ export class VoiceConnectionManager {
   private setupConnectionHandlers(session: VoiceSession, channel: VoiceBasedChannel): void {
     const connection = session.connection;
 
-    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+    connection.on(VoiceConnectionStatus.Disconnected, async (oldState?: unknown, newState?: { reason?: number }) => {
       if (session.reconnecting) return;
 
-      this.logger.warn(`[discord-voice] Disconnected from voice channel in ${channel.guild.name}`);
+      const reason = newState?.reason;
+      this.logger.warn(
+        `[discord-voice] Disconnected from voice channel in ${channel.guild.name}${reason !== undefined ? ` (reason: ${reason})` : ""}`,
+      );
 
       try {
         // Try to reconnect within 5 seconds
