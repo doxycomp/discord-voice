@@ -240,6 +240,9 @@ export class VoiceConnectionManager {
     this.ensureProviders();
 
     const debugVoice = this.config.voiceDebug ?? false;
+    // Always pass DAVE options so join reaches Ready (library default can be wrong after dependency updates)
+    const daveEncryption = this.config.daveEncryption ?? true;
+    const decryptionFailureTolerance = this.config.decryptionFailureTolerance ?? 24;
     const joinOptions = {
       channelId: channel.id,
       guildId: channel.guildId,
@@ -247,16 +250,12 @@ export class VoiceConnectionManager {
       selfDeaf: false,
       selfMute: false,
       debug: debugVoice,
-      ...(this.config.daveEncryption !== undefined && { daveEncryption: this.config.daveEncryption }),
-      ...(this.config.decryptionFailureTolerance !== undefined && {
-        decryptionFailureTolerance: this.config.decryptionFailureTolerance,
-      }),
+      daveEncryption,
+      decryptionFailureTolerance,
     };
-    if (this.config.daveEncryption !== undefined || this.config.decryptionFailureTolerance !== undefined) {
-      this.logger.info(
-        `[discord-voice] DAVE: encryption=${this.config.daveEncryption ?? "default"} tolerance=${this.config.decryptionFailureTolerance ?? "default"}`,
-      );
-    }
+    this.logger.info(
+      `[discord-voice] DAVE: encryption=${daveEncryption} tolerance=${decryptionFailureTolerance}`,
+    );
     const connection = joinVoiceChannel(
       joinOptions as Parameters<typeof joinVoiceChannel>[0],
     );
@@ -398,8 +397,10 @@ export class VoiceConnectionManager {
       // Wait before reconnecting (exponential backoff)
       await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
 
-      // Create new connection
+      // Create new connection (same DAVE defaults as join)
       const debugVoice = this.config.voiceDebug ?? false;
+      const daveEncryption = this.config.daveEncryption ?? true;
+      const decryptionFailureTolerance = this.config.decryptionFailureTolerance ?? 24;
       const rejoinOptions = {
         channelId: channel.id,
         guildId: channel.guildId,
@@ -407,10 +408,8 @@ export class VoiceConnectionManager {
         selfDeaf: false,
         selfMute: false,
         debug: debugVoice,
-        ...(this.config.daveEncryption !== undefined && { daveEncryption: this.config.daveEncryption }),
-        ...(this.config.decryptionFailureTolerance !== undefined && {
-          decryptionFailureTolerance: this.config.decryptionFailureTolerance,
-        }),
+        daveEncryption,
+        decryptionFailureTolerance,
       };
       const newConnection = joinVoiceChannel(
         rejoinOptions as Parameters<typeof joinVoiceChannel>[0],
