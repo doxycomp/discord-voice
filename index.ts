@@ -235,7 +235,7 @@ const discordVoicePlugin = {
         void runAutoJoinIfConfigured();
       } else {
         api.logger.info("[discord-voice] Using OpenClaw's Discord client (waiting for ready).");
-        discordClient.once("ready", () => {
+        discordClient.once("clientReady" as "ready", () => {
           clientReady = true;
           api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
           void runAutoJoinIfConfigured();
@@ -279,7 +279,7 @@ const discordVoicePlugin = {
               "Two connections with the same token cause voice to never reach Ready → bot will leave after ~30s. " +
               "OpenClaw must expose the Discord client via api.runtime.discord.getClient() for voice to work.",
           );
-          discordClient.once("ready", () => {
+          discordClient.once("clientReady" as "ready", () => {
             clientReady = true;
             api.logger.info(`[discord-voice] Discord client ready as ${discordClient?.user?.tag}`);
             void runAutoJoinIfConfigured();

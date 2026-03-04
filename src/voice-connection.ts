@@ -233,6 +233,14 @@ export class VoiceConnectionManager {
       selfMute: false,
     });
 
+    // Log every state transition to diagnose "never Ready" (stuck at Signalling/Connecting often = UDP/firewall)
+    this.logger.info(`[discord-voice] Voice initial state: ${connection.state.status}`);
+    connection.on("stateChange", (oldState, newState) => {
+      this.logger.info(
+        `[discord-voice] Voice state: ${oldState.status} → ${newState.status}`,
+      );
+    });
+
     const player = createAudioPlayer();
     connection.subscribe(player);
 
