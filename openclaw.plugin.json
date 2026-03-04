@@ -140,6 +140,14 @@
         "default": false,
         "description": "Enable @discordjs/voice debug messages (WebSocket/UDP handshake) for troubleshooting"
       },
+      "daveEncryption": {
+        "type": "boolean",
+        "description": "DAVE end-to-end encryption ( @discordjs/voice 0.19+ ). Set false to disable; default = library default (true)"
+      },
+      "decryptionFailureTolerance": {
+        "type": "number",
+        "description": "DAVE decryption failures before re-init ( 0.19+ ). Default in library: 24"
+      },
       "openclawRoot": {
         "type": "string",
         "description": "OpenClaw package root if auto-detection fails (path containing dist/extensionAPI.js)"

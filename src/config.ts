@@ -45,6 +45,10 @@ export interface DiscordVoiceConfig {
   voiceReadyTimeoutMs?: number;
   /** If true, enable @discordjs/voice debug messages (WebSocket/UDP handshake etc.) for troubleshooting. */
   voiceDebug?: boolean;
+  /** DAVE (Discord Audio Video Encryption): set to false to disable ( @discordjs/voice 0.19+ ). OpenClaw uses this. */
+  daveEncryption?: boolean;
+  /** DAVE decryption failure tolerance before re-init ( @discordjs/voice 0.19+ ). Default in library: 24. */
+  decryptionFailureTolerance?: number;
   heartbeatIntervalMs?: number; // Connection health check interval
   /** OpenClaw package root (if auto-detection fails); path to openclaw package dir containing dist/extensionAPI.js */
   openclawRoot?: string;
@@ -393,6 +397,12 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       return typeof v === "number" && v > 0 ? v : def;
     })(),
     voiceDebug: typeof obj["voiceDebug"] === "boolean" ? obj["voiceDebug"] : false,
+    daveEncryption:
+      typeof obj["daveEncryption"] === "boolean" ? obj["daveEncryption"] : undefined,
+    decryptionFailureTolerance:
+      typeof obj["decryptionFailureTolerance"] === "number" && obj["decryptionFailureTolerance"] >= 0
+        ? obj["decryptionFailureTolerance"]
+        : undefined,
     openclawRoot:
       typeof obj["openclawRoot"] === "string" && obj["openclawRoot"].trim() ? obj["openclawRoot"].trim() : undefined,
     heartbeatIntervalMs: (() => {

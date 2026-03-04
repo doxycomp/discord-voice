@@ -226,14 +226,26 @@ export class VoiceConnectionManager {
     this.ensureProviders();
 
     const debugVoice = this.config.voiceDebug ?? false;
-    const connection = joinVoiceChannel({
+    const joinOptions = {
       channelId: channel.id,
       guildId: channel.guildId,
       adapterCreator: channel.guild.voiceAdapterCreator,
-      selfDeaf: false, // We need to hear users
+      selfDeaf: false,
       selfMute: false,
       debug: debugVoice,
-    });
+      ...(this.config.daveEncryption !== undefined && { daveEncryption: this.config.daveEncryption }),
+      ...(this.config.decryptionFailureTolerance !== undefined && {
+        decryptionFailureTolerance: this.config.decryptionFailureTolerance,
+      }),
+    };
+    if (this.config.daveEncryption !== undefined || this.config.decryptionFailureTolerance !== undefined) {
+      this.logger.info(
+        `[discord-voice] DAVE: encryption=${this.config.daveEncryption ?? "default"} tolerance=${this.config.decryptionFailureTolerance ?? "default"}`,
+      );
+    }
+    const connection = joinVoiceChannel(
+      joinOptions as Parameters<typeof joinVoiceChannel>[0],
+    );
 
     if (debugVoice) {
       connection.on("debug", (message: string) =>
@@ -365,14 +377,21 @@ export class VoiceConnectionManager {
 
       // Create new connection
       const debugVoice = this.config.voiceDebug ?? false;
-      const newConnection = joinVoiceChannel({
+      const rejoinOptions = {
         channelId: channel.id,
         guildId: channel.guildId,
         adapterCreator: channel.guild.voiceAdapterCreator,
         selfDeaf: false,
         selfMute: false,
         debug: debugVoice,
-      });
+        ...(this.config.daveEncryption !== undefined && { daveEncryption: this.config.daveEncryption }),
+        ...(this.config.decryptionFailureTolerance !== undefined && {
+          decryptionFailureTolerance: this.config.decryptionFailureTolerance,
+        }),
+      };
+      const newConnection = joinVoiceChannel(
+        rejoinOptions as Parameters<typeof joinVoiceChannel>[0],
+      );
       if (debugVoice) {
         newConnection.on("debug", (message: string) =>
           this.logger.info(`[discord-voice] voice: ${message}`),
