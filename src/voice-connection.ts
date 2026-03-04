@@ -253,6 +253,12 @@ export class VoiceConnectionManager {
       );
     }
 
+    connection.on("error", (err: Error) => {
+      this.logger.error(
+        `[discord-voice] Voice connection error (before Ready): ${err.message}${err.cause ? ` (cause: ${String((err as Error & { cause?: unknown }).cause)})` : ""}`,
+      );
+    });
+
     // Log every state transition to diagnose "never Ready"
     this.logger.info(`[discord-voice] Voice initial state: ${connection.state.status}`);
     connection.on("stateChange", (oldState, newState) => {
