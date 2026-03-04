@@ -71,6 +71,16 @@ function isRetryableTtsError(error: unknown): boolean {
   );
 }
 
+/** DAVE receive errors: unencrypted packets during key exchange (UnencryptedWhenPassthroughDisabled). Recovery: rejoin channel. */
+function isDaveDecryptionError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes("DecryptionFailed") ||
+    msg.includes("UnencryptedWhenPassthroughDisabled") ||
+    msg.includes("Failed to decrypt")
+  );
+}
+
 /** Detect STT errors that warrant trying a fallback (quota, rate limit, connection, Wyoming unreachable) */
 function isRetryableSttError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -115,6 +125,8 @@ export interface VoiceSession {
   guildId: string;
   channelId: string;
   channelName?: string;
+  /** Stored for DAVE recovery rejoin; set when joining */
+  channel?: VoiceBasedChannel;
   connection: VoiceConnection;
   player: AudioPlayer;
   userAudioStates: Map<string, UserAudioState>;
@@ -126,6 +138,8 @@ export interface VoiceSession {
   heartbeatInterval?: ReturnType<typeof setInterval>;
   lastHeartbeat?: number;
   reconnecting?: boolean;
+  /** Set when a DAVE decryption error triggered a scheduled rejoin (avoid multiple rejoins) */
+  daveRecoveryScheduled?: boolean;
   /** Fallback TTS provider to use for rest of session (set after primary fails with quota/rate limit) */
   fallbackTtsProvider?: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge";
   /** Fallback STT provider to use for rest of session (set after primary fails) */
@@ -285,6 +299,7 @@ export class VoiceConnectionManager {
       guildId: channel.guildId,
       channelId: channel.id,
       channelName: channel.name,
+      channel,
       connection,
       player,
       userAudioStates: new Map(),
@@ -367,11 +382,13 @@ export class VoiceConnectionManager {
   private async attemptReconnect(session: VoiceSession, channel: VoiceBasedChannel, attempt = 1): Promise<void> {
     if (attempt > this.MAX_RECONNECT_ATTEMPTS) {
       this.logger.error(`[discord-voice] Max reconnection attempts reached, giving up`);
+      session.daveRecoveryScheduled = false;
       await this.leave(session.guildId);
       return;
     }
 
     session.reconnecting = true;
+    session.daveRecoveryScheduled = false;
     this.logger.info(`[discord-voice] Reconnection attempt ${attempt}/${this.MAX_RECONNECT_ATTEMPTS}`);
 
     try {
@@ -417,6 +434,7 @@ export class VoiceConnectionManager {
 
       session.reconnecting = false;
       session.lastHeartbeat = Date.now();
+      session.channel = channel;
 
       // Restart listening
       this.startListening(session);
@@ -431,6 +449,24 @@ export class VoiceConnectionManager {
       );
       await this.attemptReconnect(session, channel, attempt + 1);
     }
+  }
+
+  /**
+   * On DAVE receive decryption failure (e.g. UnencryptedWhenPassthroughDisabled), rejoin once to get a fresh session.
+   * OpenClaw uses the same approach (openclaw/openclaw#25909).
+   */
+  private scheduleRejoinForDaveRecovery(session: VoiceSession): void {
+    if (session.reconnecting || session.daveRecoveryScheduled) return;
+    const channel = session.channel;
+    if (!channel) {
+      this.logger.warn(`[discord-voice] DAVE decryption error but no channel stored; cannot rejoin`);
+      return;
+    }
+    session.daveRecoveryScheduled = true;
+    this.logger.info(
+      `[discord-voice] DAVE receive decryption failed — rejoining channel to get a fresh session (once)`,
+    );
+    void this.attemptReconnect(session, channel);
   }
 
   /**
@@ -652,6 +688,10 @@ export class VoiceConnectionManager {
     // Handle stream errors to prevent crashes
     opusStream.on("error", (error) => {
       this.logger.error(`[discord-voice] AudioReceiveStream error for user ${userId}: ${error.message}`);
+      // DAVE: unencrypted packets during key exchange can cause DecryptionFailed. Rejoin to get a fresh DAVE session.
+      if (isDaveDecryptionError(error)) {
+        this.scheduleRejoinForDaveRecovery(session);
+      }
     });
 
     state.opusStream = opusStream;
