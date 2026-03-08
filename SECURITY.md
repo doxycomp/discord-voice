@@ -17,7 +17,7 @@ The plugin dynamically imports `dist/extensionAPI.js` from the host OpenClaw pac
 
 The plugin supplies an `extraSystemPrompt` when invoking the embedded agent. This is **expected and required** for a voice assistant: it tells the agent to keep responses brief, conversational, and TTS-friendly.
 
-The prompt is constructed from:
+The prompt is either loaded from a template file (see `voiceSystemPromptPath` and `assets/voice-system-prompt.txt`) or built in code. Template placeholders are replaced with the values below. The template path must resolve inside the plugin root (path traversal is rejected), and file size is capped at 8 KB.
 
 | Component | Source | Sanitization |
 |-----------|--------|-------------|
@@ -25,7 +25,7 @@ The prompt is constructed from:
 | `noEmojiHint` | Plugin config (admin-controlled) | Control chars stripped, capped at 500 chars; or uses a hardcoded default string |
 | `userId` | Discord API | Validated against `/^\d{17,20}$/` (Discord snowflake format); replaced with `"unknown"` if invalid |
 
-**Threat model**: All prompt components originate from admin-controlled configuration or platform APIs, not from end-user input at runtime. An attacker would need write access to the server's configuration files to inject prompt content, at which point they already have full control of the agent.
+**Threat model**: All prompt components originate from admin-controlled configuration or platform APIs, not from end-user input at runtime. An attacker would need write access to the server's configuration or plugin files to inject prompt content, at which point they already have full control of the agent.
 
 ## `noEmojiHint` Configuration
 

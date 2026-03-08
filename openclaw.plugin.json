@@ -110,6 +110,10 @@
         "default": true,
         "description": "Inject TTS hint: true = default 'no emojis' text, false = off, string = custom text"
       },
+      "voiceSystemPromptPath": {
+        "type": "string",
+        "description": "Path to voice system prompt template (relative to plugin root). Placeholders: {{agentName}}, {{noEmojiHint}}, {{userId}}. Unset = use assets/voice-system-prompt.txt if present; empty string = built-in prompt only"
+      },
       "ttsFallbackProvider": {
         "type": "string",
         "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro"],

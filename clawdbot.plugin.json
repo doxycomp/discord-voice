@@ -106,6 +106,10 @@
       "daveEncryption": { "type": "boolean", "description": "DAVE encryption (0.19+); set false to disable" },
       "decryptionFailureTolerance": { "type": "number", "description": "DAVE decryption tolerance (0.19+), default 24" },
       "openclawRoot": { "type": "string", "description": "OpenClaw package root if auto-detection fails" },
+      "voiceSystemPromptPath": {
+        "type": "string",
+        "description": "Path to voice system prompt template (relative to plugin root). Placeholders: {{agentName}}, {{noEmojiHint}}, {{userId}}"
+      },
       "thinkingSound": {
         "type": "object",
         "properties": {

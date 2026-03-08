@@ -79,6 +79,13 @@ export interface DiscordVoiceConfig {
    * - `string`: use this custom text
    */
   noEmojiHint?: boolean | string;
+  /**
+   * Path to voice system prompt template (relative to plugin root).
+   * Placeholders: {{agentName}}, {{noEmojiHint}}, {{userId}}.
+   * If unset, uses default path "assets/voice-system-prompt.txt" when present; else built-in prompt.
+   * Set to empty string to always use built-in prompt.
+   */
+  voiceSystemPromptPath?: string;
 
   openai?: {
     apiKey?: string;
@@ -459,6 +466,10 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       if (typeof s === "string" && s.trim()) return sanitizeNoEmojiHint(s);
       return true;
     })(),
+    voiceSystemPromptPath:
+      typeof obj["voiceSystemPromptPath"] === "string" && obj["voiceSystemPromptPath"].trim()
+        ? (obj["voiceSystemPromptPath"] as string).trim()
+        : undefined,
     openai: (() => {
       const o = obj["openai"] && typeof obj["openai"] === "object" ? (obj["openai"] as Record<string, unknown>) : null;
       const apiKey = (o?.["apiKey"] as string | undefined) || fallback.openaiApiKey;

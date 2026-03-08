@@ -14,12 +14,52 @@
 
 import crypto from "node:crypto";
 import dns from "node:dns";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "@sinclair/typebox";
 import { Client, GatewayIntentBits, type VoiceBasedChannel } from "discord.js";
 
 import { parseConfig, getAvailableModels, DEFAULT_NO_EMOJI_HINT, sanitizeNoEmojiHint, type DiscordVoiceConfig } from "./src/config.js";
 import { VoiceConnectionManager } from "./src/voice-connection.js";
 import { loadCoreAgentDeps, type CoreConfig } from "./src/core-bridge.js";
+
+const DEFAULT_VOICE_SYSTEM_PROMPT_PATH = "assets/voice-system-prompt.txt";
+const MAX_VOICE_SYSTEM_PROMPT_BYTES = 8192;
+
+function buildVoiceSystemPrompt(
+  cfg: DiscordVoiceConfig,
+  pluginRoot: string,
+  agentName: string,
+  noEmojiPart: string,
+  safeUserId: string,
+): string {
+  const pathOpt = cfg.voiceSystemPromptPath;
+  if (pathOpt === "") {
+    return getBuiltinVoiceSystemPrompt(agentName, noEmojiPart, safeUserId);
+  }
+  const toResolve = pathOpt ?? DEFAULT_VOICE_SYSTEM_PROMPT_PATH;
+  const resolved = path.resolve(pluginRoot, toResolve);
+  if (!resolved.startsWith(pluginRoot)) {
+    return getBuiltinVoiceSystemPrompt(agentName, noEmojiPart, safeUserId);
+  }
+  try {
+    const raw = fs.readFileSync(resolved, "utf8");
+    if (raw.length > MAX_VOICE_SYSTEM_PROMPT_BYTES) {
+      return getBuiltinVoiceSystemPrompt(agentName, noEmojiPart, safeUserId);
+    }
+    return raw
+      .replace(/\{\{agentName\}\}/g, agentName)
+      .replace(/\{\{noEmojiHint\}\}/g, noEmojiPart)
+      .replace(/\{\{userId\}\}/g, safeUserId);
+  } catch {
+    return getBuiltinVoiceSystemPrompt(agentName, noEmojiPart, safeUserId);
+  }
+}
+
+function getBuiltinVoiceSystemPrompt(agentName: string, noEmojiPart: string, safeUserId: string): string {
+  return `You are ${agentName}, speaking in a Discord voice channel. Keep responses brief and conversational (1-2 sentences max). Be natural and friendly.${noEmojiPart} You have access to all your normal tools and skills. The user's Discord ID is ${safeUserId}. Your reply will be read aloud automatically—do not use the discord_voice speak tool to respond; just return your reply as text.`;
+}
 
 interface PluginApi {
   pluginConfig: unknown;
@@ -374,7 +414,8 @@ const discordVoicePlugin = {
               : ` ${DEFAULT_NO_EMOJI_HINT}`;
         // Sanitize userId to prevent prompt injection (must be a Discord snowflake)
         const safeUserId = DISCORD_SNOWFLAKE_RE.test(userId) ? userId : "unknown";
-        const extraSystemPrompt = `You are ${agentName}, speaking in a Discord voice channel. Keep responses brief and conversational (1-2 sentences max). Be natural and friendly.${noEmojiPart} You have access to all your normal tools and skills. The user's Discord ID is ${safeUserId}. Your reply will be read aloud automatically—do not use the discord_voice speak tool to respond; just return your reply as text.`;
+        const pluginRoot = path.dirname(fileURLToPath(import.meta.url));
+        const extraSystemPrompt = buildVoiceSystemPrompt(cfg, pluginRoot, agentName, noEmojiPart, safeUserId);
 
         const timeoutMs = deps.resolveAgentTimeoutMs({ cfg: coreConfig });
         const runId = `discord-voice:${guildId}:${Date.now()}`;

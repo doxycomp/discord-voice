@@ -139,6 +139,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `openclawRoot`         | string            | `undefined`                           | OpenClaw package root if auto-detection fails                                                                                                                                                 |
 | `thinkingSound`        | object            | see [Thinking Sound](#thinking-sound) | Sound played while processing                                                                                                                                                                 |
 | `noEmojiHint`          | boolean \| string | `true`                                | Inject TTS hint into agent prompt; when set, emojis are also stripped from responses before TTS (avoids Kokoro reading them aloud)                                                            |
+| `voiceSystemPromptPath` | string            | (see below)                           | Path to voice system prompt template (relative to plugin root). Placeholders: `{{agentName}}`, `{{noEmojiHint}}`, `{{userId}}`. Unset = use `assets/voice-system-prompt.txt` if present; `""` = built-in only. |
 | `ttsFallbackProvider`  | string            | `undefined`                           | Single fallback (legacy). Prefer `ttsFallbackProviders`.                                                                                                                                      |
 | `ttsFallbackProviders` | string[]          | `undefined`                           | Fallback TTS providers tried in order when primary fails (quota/rate limit). E.g. `["edge", "polly", "kokoro"]`. Once one succeeds, the session stays on it until the bot leaves the channel. |
 
@@ -484,6 +485,16 @@ While the bot processes speech and generates a response, it can play a short loo
 - `stopDelayMs`: Delay (ms) after stopping thinking sound before playing response. Default `50`. Range 0–500. Lower = snappier.
 
 If the file is missing, no sound is played. Any short ambient or notification MP3 works (e.g. 2–5 seconds, looped).
+
+## Voice system prompt
+
+The text that instructs the agent how to behave in voice (brief, conversational, TTS-friendly) is configurable via a template file. A default template is provided at `assets/voice-system-prompt.txt`. Placeholders:
+
+- `{{agentName}}` – agent name from OpenClaw identity
+- `{{noEmojiHint}}` – optional TTS hint (from `noEmojiHint` config), or empty
+- `{{userId}}` – Discord user ID (or `unknown`)
+
+**Config:** `voiceSystemPromptPath` (relative to plugin root). If unset, the plugin uses `assets/voice-system-prompt.txt` when the file exists; if the file is missing or invalid, a built-in prompt is used. Set to `""` to always use the built-in prompt. Custom paths are allowed but must resolve inside the plugin root (path traversal is rejected). Template file size is capped at 8 KB.
 
 ## Auto-reconnect
 
