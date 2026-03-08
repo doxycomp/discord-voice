@@ -50,9 +50,13 @@ function pcmToWavBuffer(monoBuffer: Buffer, sampleRate: number): Buffer {
   return Buffer.from(wav.toBuffer());
 }
 
+/** Optional logger for TTS debug (temp WAV path/size). */
+type TTSResultLogger = { info(msg: string): void } | undefined;
+
 /** Create Discord audio resource from TTS result. PCM is written to a temp WAV file so FFmpeg can read it reliably. */
 async function createResourceFromTTSResult(
   result: TTSResult,
+  logger?: TTSResultLogger,
 ): Promise<ReturnType<typeof createAudioResource>> {
   if (result.format === "opus") {
     return createAudioResource(Readable.from(result.audioBuffer), {
@@ -71,11 +75,22 @@ async function createResourceFromTTSResult(
       `discord-voice-tts-${Date.now()}-${randomBytes(4).toString("hex")}.wav`,
     );
     await fs.promises.writeFile(wavPath, wavBuffer);
-    const durationMs = (result.audioBuffer.length / 2 / result.sampleRate) * 1000;
-    setTimeout(
-      () => fs.promises.unlink(wavPath).catch(() => {}),
-      durationMs + 10_000,
-    );
+    const durationMs = Math.max(0, (result.audioBuffer.length / 2 / result.sampleRate) * 1000) || 0;
+    const keepForDebug = process.env.DISCORD_VOICE_DEBUG_KEEP_TTS_WAV === "1" || process.env.DISCORD_VOICE_DEBUG_KEEP_TTS_WAV === "true";
+    if (keepForDebug) {
+      (logger ?? { info: (m: string) => console.warn(m) }).info(
+        `[discord-voice] DEBUG: TTS WAV kept (no unlink): ${wavPath} (${wavBuffer.length} bytes, ~${Math.round(durationMs)}ms). Test with: ffplay "${wavPath}"`,
+      );
+    } else {
+      const unlinkAfterMs = 60_000;
+      setTimeout(
+        () => fs.promises.unlink(wavPath).catch(() => {}),
+        unlinkAfterMs,
+      );
+      logger?.info(
+        `[discord-voice] TTS WAV temp: ${wavPath} (${wavBuffer.length} bytes). To verify locally run within 60s: ffplay "${wavPath}"`,
+      );
+    }
     return createAudioResource(wavPath);
   }
   return createAudioResource(Readable.from(result.audioBuffer));
@@ -1073,7 +1088,7 @@ export class VoiceConnectionManager {
 
     // Batch
     const ttsResult = await fallbackTts.synthesize(text);
-    return await createResourceFromTTSResult(ttsResult);
+    return await createResourceFromTTSResult(ttsResult, this.logger);
   }
 
   /**

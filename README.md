@@ -283,6 +283,8 @@ No API key required. Uses Microsoft's online neural TTS via `node-edge-tts`. Def
 
 Use a [Pocket TTS server](https://github.com/doxycomp/pocket-tts-server) on your LAN. The server exposes OpenAI-compatible `/v1/audio/speech` (returns WAV). Set `baseUrl` to the server URL (e.g. `http://192.168.1.10:8000`). Voice IDs come from the server’s `/v1/audio/voices`. **FFmpeg must be installed** on the host running the OpenClaw gateway so the voice pipeline can decode WAV to the format Discord expects.
 
+**No audio from Pocket TTS?** Set `DISCORD_VOICE_DEBUG_KEEP_TTS_WAV=1` and restart. After a TTS phrase, the log will show a path to the temp WAV file. On the gateway host run `ffplay "/path/from/log"`. If you hear the phrase, the problem is downstream (FFmpeg→Opus→Discord). If the file is silent or invalid, the problem is the TTS response or WAV conversion.
+
 ```json5
 {
   ttsProvider: "pocket-tts-remote",
