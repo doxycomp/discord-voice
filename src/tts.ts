@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 import { EdgeTTS } from "node-edge-tts";
-import { WaveFile } from "wavefile";
 import type { DiscordVoiceConfig } from "./config.js";
 import { validateElevenLabsVoiceId, validateKokoroModel } from "./config.js";
 import { KokoroTTS } from "kokoro-js";
@@ -22,7 +21,7 @@ type KokoroVoice = keyof KokoroTTS["voices"];
 
 export interface TTSResult {
   audioBuffer: Buffer;
-  format: "pcm" | "opus" | "mp3" | "webm";
+  format: "pcm" | "opus" | "mp3" | "webm" | "wav";
   sampleRate: number;
 }
 
@@ -433,19 +432,12 @@ export class PocketTTSRemoteProvider implements TTSProvider {
       }
 
       const wavBuffer = Buffer.from(await response.arrayBuffer());
-      const wav = new WaveFile(wavBuffer);
-      // Standard WAV fmt chunk: sample rate at offset 24 (4 bytes LE)
-      const sampleRate = wavBuffer.length >= 28 ? wavBuffer.readUInt32LE(24) : 24000;
-      const samples = wav.getSamples(false, Int16Array);
-      const audioBuffer =
-        samples.byteOffset === 0 && samples.byteLength === samples.buffer.byteLength
-          ? Buffer.from(samples.buffer)
-          : Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
-
+      // Return raw WAV so the voice pipeline can feed it to FFmpeg without re-encoding.
+      // (Parsing with WaveFile.getSamples() was producing silence for this server's WAV format.)
       return {
-        audioBuffer,
-        format: "pcm",
-        sampleRate,
+        audioBuffer: wavBuffer,
+        format: "wav",
+        sampleRate: 0,
       };
     } finally {
       clearTimeout(timeoutId);

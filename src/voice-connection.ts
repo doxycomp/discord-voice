@@ -63,8 +63,7 @@ async function createResourceFromTTSResult(
       inputType: StreamType.OggOpus,
     });
   }
-  if (result.format === "pcm") {
-    const wavBuffer = pcmToWavBuffer(result.audioBuffer, result.sampleRate);
+  if (result.format === "wav" || result.format === "pcm") {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const os = await import("node:os");
@@ -74,12 +73,19 @@ async function createResourceFromTTSResult(
       tmpDir,
       `discord-voice-tts-${Date.now()}-${randomBytes(4).toString("hex")}.wav`,
     );
+    const wavBuffer =
+      result.format === "wav"
+        ? result.audioBuffer
+        : pcmToWavBuffer(result.audioBuffer, result.sampleRate);
     await fs.promises.writeFile(wavPath, wavBuffer);
-    const durationMs = Math.max(0, (result.audioBuffer.length / 2 / result.sampleRate) * 1000) || 0;
+    const durationMs =
+      result.format === "wav"
+        ? 0
+        : Math.max(0, (result.audioBuffer.length / 2 / result.sampleRate) * 1000) || 0;
     const keepForDebug = process.env.DISCORD_VOICE_DEBUG_KEEP_TTS_WAV === "1" || process.env.DISCORD_VOICE_DEBUG_KEEP_TTS_WAV === "true";
     if (keepForDebug) {
       (logger ?? { info: (m: string) => console.warn(m) }).info(
-        `[discord-voice] DEBUG: TTS WAV kept (no unlink): ${wavPath} (${wavBuffer.length} bytes, ~${Math.round(durationMs)}ms). Test with: ffplay "${wavPath}"`,
+        `[discord-voice] DEBUG: TTS WAV kept (no unlink): ${wavPath} (${wavBuffer.length} bytes${durationMs ? `, ~${Math.round(durationMs)}ms` : ""}). Test with: ffplay "${wavPath}"`,
       );
     } else {
       const unlinkAfterMs = 60_000;
