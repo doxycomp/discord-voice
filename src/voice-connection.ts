@@ -34,7 +34,40 @@ import { SPEAK_COOLDOWN_VAD_MS, SPEAK_COOLDOWN_PROCESSING_MS, getRmsThreshold } 
 import { createSTTProvider, type STTProvider } from "./stt.js";
 import { createTTSProvider, type TTSProvider } from "./tts.js";
 
-/** Create Discord audio resource from TTS result; PCM is converted to WAV for playback */
+const DISCORD_VOICE_SAMPLE_RATE = 48_000;
+const DISCORD_VOICE_CHANNELS = 2;
+
+/**
+ * Convert mono s16le PCM to 48kHz stereo s16le for @discordjs/voice (Opus encoder expects 48kHz stereo).
+ */
+function pcmTo48kStereo(
+  monoBuffer: Buffer,
+  sourceSampleRate: number,
+): Buffer {
+  const mono = new Int16Array(
+    monoBuffer.buffer,
+    monoBuffer.byteOffset,
+    monoBuffer.length / 2,
+  );
+  const inLen = mono.length;
+  const outLen = Math.round((inLen * DISCORD_VOICE_SAMPLE_RATE) / sourceSampleRate);
+  const stereo = new Int16Array(outLen * DISCORD_VOICE_CHANNELS);
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = (i * sourceSampleRate) / DISCORD_VOICE_SAMPLE_RATE;
+    const lo = Math.floor(srcIdx);
+    const hi = Math.min(lo + 1, inLen - 1);
+    const frac = srcIdx - lo;
+    const sample =
+      lo === hi
+        ? mono[lo]
+        : Math.round(mono[lo] * (1 - frac) + mono[hi] * frac);
+    stereo[i * 2] = sample;
+    stereo[i * 2 + 1] = sample;
+  }
+  return Buffer.from(stereo.buffer, stereo.byteOffset, stereo.byteLength);
+}
+
+/** Create Discord audio resource from TTS result; PCM is converted to 48kHz stereo for the voice pipeline. */
 function createResourceFromTTSResult(result: TTSResult): ReturnType<typeof createAudioResource> {
   if (result.format === "opus") {
     return createAudioResource(Readable.from(result.audioBuffer), {
@@ -42,8 +75,9 @@ function createResourceFromTTSResult(result: TTSResult): ReturnType<typeof creat
     });
   }
   if (result.format === "pcm") {
-    // Pass raw s16le PCM so the voice pipeline can encode to Opus (WAV/Arbitrary was not played).
-    return createAudioResource(Readable.from(result.audioBuffer), {
+    // Voice pipeline Opus encoder expects 48kHz stereo s16le; TTS is usually mono, so always convert.
+    const pcm = pcmTo48kStereo(result.audioBuffer, result.sampleRate);
+    return createAudioResource(Readable.from(pcm), {
       inputType: StreamType.Raw,
     });
   }
