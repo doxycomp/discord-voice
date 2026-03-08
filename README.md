@@ -19,6 +19,7 @@ Real-time voice conversations in Discord voice channels. Join a voice channel, s
 
 - Discord bot with voice permissions (Connect, Speak, Use Voice Activity)
 - API keys for STT and TTS providers
+- **DAVE (voice encryption):** The plugin lists `@snazzah/davey` as a dependency so that @discordjs/voice can complete the Discord voice handshake. Without it, the connection may drop after OP 8 (Hello) and never reach Ready. Run `npm install` in the plugin directory to install it.
 - System dependencies for voice:
   - `ffmpeg` (audio processing)
   - Native build tools for `@discordjs/opus` and `sodium-native`
@@ -342,6 +343,7 @@ When the primary STT fails (quota, rate limit, or Wyoming unreachable), fallback
 
 ### Voice: join fails or never reaches Ready
 
+- **Install the DAVE dependency.** If the connection drops right after the voice WebSocket connects (e.g. you see `connecting → signalling` and then timeout / "The operation was aborted"), the Discord voice handshake cannot complete without the DAVE protocol implementation. This plugin includes `@snazzah/davey` in its dependencies; run `npm install` in the plugin directory so it is installed. See [discordjs/discord.js#11439](https://github.com/discordjs/discord.js/issues/11439).
 - **Use @discordjs/voice 0.19.x with DAVE enabled.** In many environments the connection only reaches Ready when `daveEncryption` is true (or omitted); with DAVE disabled, the UDP handshake may never complete (Discord/library behavior).
 - Prefer a single Discord client: OpenClaw should expose the client via `api.runtime.discord.getClient()` so the plugin does not run a second client (two connections with the same token can prevent voice from reaching Ready).
 - **voiceDebug: true** enables @discordjs/voice debug logs (WebSocket/UDP). **voiceReadyTimeoutMs**: increase (e.g. 45000) if join often times out.

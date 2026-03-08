@@ -407,16 +407,25 @@ export class PocketTTSRemoteProvider implements TTSProvider {
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: text,
-          voice: this.voice,
-          response_format: "wav",
-        }),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            input: text,
+            voice: this.voice,
+            response_format: "wav",
+          }),
+          signal: controller.signal,
+        });
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        const cause = fetchErr instanceof Error && fetchErr.cause ? String(fetchErr.cause) : "";
+        throw new Error(
+          `Pocket TTS Remote fetch failed: ${msg}${cause ? ` (${cause})` : ""}. Check that baseUrl (${this.baseUrl}) is reachable from the host running the gateway.`,
+        );
+      }
 
       if (!response.ok) {
         const error = await response.text();
