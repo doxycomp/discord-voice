@@ -281,7 +281,7 @@ No API key required. Uses Microsoft's online neural TTS via `node-edge-tts`. Def
 
 #### Pocket TTS Remote
 
-Use a [Pocket TTS server](https://github.com/doxycomp/pocket-tts-server) on your LAN. The server exposes OpenAI-compatible `/v1/audio/speech` (returns WAV). Set `baseUrl` to the server URL (e.g. `http://192.168.1.10:8000`). Voice IDs come from the server’s `/v1/audio/voices`.
+Use a [Pocket TTS server](https://github.com/doxycomp/pocket-tts-server) on your LAN. The server exposes OpenAI-compatible `/v1/audio/speech` (returns WAV). Set `baseUrl` to the server URL (e.g. `http://192.168.1.10:8000`). Voice IDs come from the server’s `/v1/audio/voices`. **FFmpeg must be installed** on the host running the OpenClaw gateway so the voice pipeline can decode WAV to the format Discord expects.
 
 ```json5
 {

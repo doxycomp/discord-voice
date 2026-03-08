@@ -25,6 +25,7 @@ import {
 import type { VoiceBasedChannel } from "discord.js";
 import { Readable } from "node:stream";
 import * as prism from "prism-media";
+import { WaveFile } from "wavefile";
 
 import type { DiscordVoiceConfig } from "./config.js";
 import type { TTSResult } from "./tts.js";
@@ -34,40 +35,22 @@ import { SPEAK_COOLDOWN_VAD_MS, SPEAK_COOLDOWN_PROCESSING_MS, getRmsThreshold } 
 import { createSTTProvider, type STTProvider } from "./stt.js";
 import { createTTSProvider, type TTSProvider } from "./tts.js";
 
-const DISCORD_VOICE_SAMPLE_RATE = 48_000;
-const DISCORD_VOICE_CHANNELS = 2;
-
 /**
- * Convert mono s16le PCM to 48kHz stereo s16le for @discordjs/voice (Opus encoder expects 48kHz stereo).
+ * Build a WAV buffer from mono s16le PCM for FFmpeg (Arbitrary path).
+ * FFmpeg will decode and output 48kHz stereo for the voice pipeline.
  */
-function pcmTo48kStereo(
-  monoBuffer: Buffer,
-  sourceSampleRate: number,
-): Buffer {
-  const mono = new Int16Array(
+function pcmToWavBuffer(monoBuffer: Buffer, sampleRate: number): Buffer {
+  const samples = new Int16Array(
     monoBuffer.buffer,
     monoBuffer.byteOffset,
     monoBuffer.length / 2,
   );
-  const inLen = mono.length;
-  const outLen = Math.round((inLen * DISCORD_VOICE_SAMPLE_RATE) / sourceSampleRate);
-  const stereo = new Int16Array(outLen * DISCORD_VOICE_CHANNELS);
-  for (let i = 0; i < outLen; i++) {
-    const srcIdx = (i * sourceSampleRate) / DISCORD_VOICE_SAMPLE_RATE;
-    const lo = Math.floor(srcIdx);
-    const hi = Math.min(lo + 1, inLen - 1);
-    const frac = srcIdx - lo;
-    const sample =
-      lo === hi
-        ? mono[lo]
-        : Math.round(mono[lo] * (1 - frac) + mono[hi] * frac);
-    stereo[i * 2] = sample;
-    stereo[i * 2 + 1] = sample;
-  }
-  return Buffer.from(stereo.buffer, stereo.byteOffset, stereo.byteLength);
+  const wav = new WaveFile();
+  wav.fromScratch(1, sampleRate, "16", samples);
+  return Buffer.from(wav.toBuffer());
 }
 
-/** Create Discord audio resource from TTS result; PCM is converted to 48kHz stereo for the voice pipeline. */
+/** Create Discord audio resource from TTS result. */
 function createResourceFromTTSResult(result: TTSResult): ReturnType<typeof createAudioResource> {
   if (result.format === "opus") {
     return createAudioResource(Readable.from(result.audioBuffer), {
@@ -75,10 +58,10 @@ function createResourceFromTTSResult(result: TTSResult): ReturnType<typeof creat
     });
   }
   if (result.format === "pcm") {
-    // Voice pipeline Opus encoder expects 48kHz stereo s16le; TTS is usually mono, so always convert.
-    const pcm = pcmTo48kStereo(result.audioBuffer, result.sampleRate);
-    return createAudioResource(Readable.from(pcm), {
-      inputType: StreamType.Raw,
+    // Prefer FFmpeg path: WAV → FFmpeg decodes to 48kHz stereo. Requires FFmpeg on the host.
+    const wavBuffer = pcmToWavBuffer(result.audioBuffer, result.sampleRate);
+    return createAudioResource(Readable.from(wavBuffer), {
+      inputType: StreamType.Arbitrary,
     });
   }
   return createAudioResource(Readable.from(result.audioBuffer));
