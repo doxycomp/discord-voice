@@ -25,7 +25,6 @@ import {
 import type { VoiceBasedChannel } from "discord.js";
 import { Readable } from "node:stream";
 import * as prism from "prism-media";
-import { WaveFile } from "wavefile";
 
 import type { DiscordVoiceConfig } from "./config.js";
 import type { TTSResult } from "./tts.js";
@@ -43,15 +42,10 @@ function createResourceFromTTSResult(result: TTSResult): ReturnType<typeof creat
     });
   }
   if (result.format === "pcm") {
-    const wav = new WaveFile();
-    // wavefile expects sample values (-32768..32767), not raw bytes; convert Int16LE Buffer to Int16Array
-    const samples = new Int16Array(
-      result.audioBuffer.buffer,
-      result.audioBuffer.byteOffset,
-      result.audioBuffer.length / 2,
-    );
-    wav.fromScratch(1, result.sampleRate, "16", samples);
-    return createAudioResource(Readable.from(Buffer.from(wav.toBuffer())));
+    // Pass raw s16le PCM so the voice pipeline can encode to Opus (WAV/Arbitrary was not played).
+    return createAudioResource(Readable.from(result.audioBuffer), {
+      inputType: StreamType.Raw,
+    });
   }
   return createAudioResource(Readable.from(result.audioBuffer));
 }
