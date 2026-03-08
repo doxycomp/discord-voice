@@ -50,19 +50,33 @@ function pcmToWavBuffer(monoBuffer: Buffer, sampleRate: number): Buffer {
   return Buffer.from(wav.toBuffer());
 }
 
-/** Create Discord audio resource from TTS result. */
-function createResourceFromTTSResult(result: TTSResult): ReturnType<typeof createAudioResource> {
+/** Create Discord audio resource from TTS result. PCM is written to a temp WAV file so FFmpeg can read it reliably. */
+async function createResourceFromTTSResult(
+  result: TTSResult,
+): Promise<ReturnType<typeof createAudioResource>> {
   if (result.format === "opus") {
     return createAudioResource(Readable.from(result.audioBuffer), {
       inputType: StreamType.OggOpus,
     });
   }
   if (result.format === "pcm") {
-    // Prefer FFmpeg path: WAV → FFmpeg decodes to 48kHz stereo. Requires FFmpeg on the host.
     const wavBuffer = pcmToWavBuffer(result.audioBuffer, result.sampleRate);
-    return createAudioResource(Readable.from(wavBuffer), {
-      inputType: StreamType.Arbitrary,
-    });
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { randomBytes } = await import("node:crypto");
+    const tmpDir = os.default.tmpdir();
+    const wavPath = path.default.join(
+      tmpDir,
+      `discord-voice-tts-${Date.now()}-${randomBytes(4).toString("hex")}.wav`,
+    );
+    await fs.promises.writeFile(wavPath, wavBuffer);
+    const durationMs = (result.audioBuffer.length / 2 / result.sampleRate) * 1000;
+    setTimeout(
+      () => fs.promises.unlink(wavPath).catch(() => {}),
+      durationMs + 10_000,
+    );
+    return createAudioResource(wavPath);
   }
   return createAudioResource(Readable.from(result.audioBuffer));
 }
@@ -1059,7 +1073,7 @@ export class VoiceConnectionManager {
 
     // Batch
     const ttsResult = await fallbackTts.synthesize(text);
-    return createResourceFromTTSResult(ttsResult);
+    return await createResourceFromTTSResult(ttsResult);
   }
 
   /**
