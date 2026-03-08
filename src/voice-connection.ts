@@ -35,6 +35,22 @@ import { SPEAK_COOLDOWN_VAD_MS, SPEAK_COOLDOWN_PROCESSING_MS, getRmsThreshold } 
 import { createSTTProvider, type STTProvider } from "./stt.js";
 import { createTTSProvider, type TTSProvider } from "./tts.js";
 
+/** Strip Markdown formatting for TTS so the engine does not read "asterisk asterisk" etc. */
+function stripMarkdownForTts(raw: string): string {
+  let s = raw
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*([^*]*?)\*\*/g, "$1")
+    .replace(/__([^_]*?)__/g, "$1")
+    .replace(/\*([^*]+?)\*/g, "$1")
+    .replace(/(^|\s)_([^_]+?)_(\s|$)/g, "$1$2$3")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/~~([^~]*?)~~/g, "$1")
+    .replace(/^#+\s*/gm, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return s;
+}
+
 /**
  * Build a WAV buffer from mono s16le PCM for FFmpeg (Arbitrary path).
  * FFmpeg will decode and output 48kHz stereo for the voice pipeline.
@@ -1112,13 +1128,16 @@ export class VoiceConnectionManager {
     }
 
     // Strip emojis before TTS when noEmojiHint is set (avoids Kokoro/others reading them aloud)
-    const text =
+    let text =
       this.config.noEmojiHint !== false
         ? rawText
             .replace(emojiRegex(), "")
             .replace(/\s{2,}/g, " ")
             .trim()
         : rawText;
+    if (this.config.stripMarkdownForTts !== false) {
+      text = stripMarkdownForTts(text);
+    }
 
     this.ensureProviders();
 

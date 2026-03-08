@@ -80,6 +80,11 @@ export interface DiscordVoiceConfig {
    */
   noEmojiHint?: boolean | string;
   /**
+   * When true (default), strip Markdown formatting from agent text before TTS (e.g. **bold**, *italic*, `code`, [links](url))
+   * so the TTS does not read "asterisk asterisk" etc.
+   */
+  stripMarkdownForTts?: boolean;
+  /**
    * Path to voice system prompt template (relative to plugin root).
    * Placeholders: {{agentName}}, {{noEmojiHint}}, {{userId}}.
    * If unset, uses default path "assets/voice-system-prompt.txt" when present; else built-in prompt.
@@ -470,6 +475,8 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       typeof obj["voiceSystemPromptPath"] === "string" && obj["voiceSystemPromptPath"].trim()
         ? (obj["voiceSystemPromptPath"] as string).trim()
         : undefined,
+    stripMarkdownForTts:
+      typeof obj["stripMarkdownForTts"] === "boolean" ? obj["stripMarkdownForTts"] : true,
     openai: (() => {
       const o = obj["openai"] && typeof obj["openai"] === "object" ? (obj["openai"] as Record<string, unknown>) : null;
       const apiKey = (o?.["apiKey"] as string | undefined) || fallback.openaiApiKey;

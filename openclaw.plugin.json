@@ -110,6 +110,11 @@
         "default": true,
         "description": "Inject TTS hint: true = default 'no emojis' text, false = off, string = custom text"
       },
+      "stripMarkdownForTts": {
+        "type": "boolean",
+        "default": true,
+        "description": "Strip Markdown (**, *, `, [links], etc.) from agent text before TTS so the engine does not read formatting aloud"
+      },
       "voiceSystemPromptPath": {
         "type": "string",
         "description": "Path to voice system prompt template (relative to plugin root). Placeholders: {{agentName}}, {{noEmojiHint}}, {{userId}}. Unset = use assets/voice-system-prompt.txt if present; empty string = built-in prompt only"
