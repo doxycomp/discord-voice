@@ -141,7 +141,14 @@ export interface VoiceSession {
   /** Set when a DAVE decryption error triggered a scheduled rejoin (avoid multiple rejoins) */
   daveRecoveryScheduled?: boolean;
   /** Fallback TTS provider to use for rest of session (set after primary fails with quota/rate limit) */
-  fallbackTtsProvider?: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge";
+  fallbackTtsProvider?:
+    | "openai"
+    | "elevenlabs"
+    | "deepgram"
+    | "polly"
+    | "kokoro"
+    | "edge"
+    | "pocket-tts-remote";
   /** Fallback STT provider to use for rest of session (set after primary fails) */
   fallbackSttProvider?:
     | "whisper"
@@ -1014,7 +1021,14 @@ export class VoiceConnectionManager {
    */
   private async tryGetResourceWithProvider(
     text: string,
-    provider: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge",
+    provider:
+      | "openai"
+      | "elevenlabs"
+      | "deepgram"
+      | "polly"
+      | "kokoro"
+      | "edge"
+      | "pocket-tts-remote",
   ): Promise<ReturnType<typeof createAudioResource> | null> {
     const overrideConfig = { ...this.config, ttsProvider: provider };
     const fallbackTts = createTTSProvider(overrideConfig);

@@ -66,9 +66,9 @@
       },
       "ttsProvider": {
         "type": "string",
-        "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro"],
+        "enum": ["openai", "elevenlabs", "deepgram", "polly", "edge", "kokoro", "pocket-tts-remote"],
         "default": "openai",
-        "description": "openai, elevenlabs, edge (free), or kokoro (free local)"
+        "description": "openai, elevenlabs, edge (free), kokoro (free local), or pocket-tts-remote (Pocket TTS server on LAN)"
       },
       "ttsVoice": { "type": "string", "default": "nova" },
       "vadSensitivity": {
@@ -158,6 +158,15 @@
           "modelId": { "type": "string" },
           "dtype": { "type": "string", "enum": ["fp32", "fp16", "q8", "q4", "q4f16"], "default": "fp32" }
         }
+      },
+      "pocketTtsRemote": {
+        "type": "object",
+        "properties": {
+          "baseUrl": { "type": "string", "description": "Base URL of Pocket TTS server (e.g. http://192.168.1.10:8000)" },
+          "voice": { "type": "string", "description": "Voice ID from server (e.g. from /v1/audio/voices)" },
+          "timeoutMs": { "type": "number", "default": 30000 }
+        },
+        "description": "Pocket TTS server (remote, OpenAI-compatible /v1/audio/speech)"
       },
       "elevenlabs": {
         "type": "object",

@@ -30,10 +30,18 @@ export interface DiscordVoiceConfig {
     | "wyoming-whisper"
   )[];
   streamingSTT: boolean; // Use streaming STT (Deepgram only) for lower latency
-  ttsProvider: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge";
+  ttsProvider: "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge" | "pocket-tts-remote";
   ttsVoice: string;
   /** Fallback TTS providers when primary fails (quota, rate limit), tried in order. E.g. ["edge", "kokoro"] */
-  ttsFallbackProviders?: readonly ("openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge")[];
+  ttsFallbackProviders?: readonly (
+    | "openai"
+    | "elevenlabs"
+    | "deepgram"
+    | "polly"
+    | "kokoro"
+    | "edge"
+    | "pocket-tts-remote"
+  )[];
   vadSensitivity: "low" | "medium" | "high";
   bargeIn: boolean; // Stop speaking when user starts talking
   allowedUsers: string[];
@@ -129,6 +137,14 @@ export interface DiscordVoiceConfig {
     dtype?: "fp32" | "fp16" | "q8" | "q4" | "q4f16";
     /** Kokoro voice: af_heart, af_bella, af_nicole, etc. Default: af_heart */
     voice?: string;
+  };
+  /** Pocket TTS server (remote, e.g. pocket-tts-server on LAN). Uses /v1/audio/speech. */
+  pocketTtsRemote?: {
+    /** Base URL of the server (e.g. http://192.168.1.10:8000). No trailing slash. */
+    baseUrl: string;
+    /** Voice ID from the server (e.g. from /v1/audio/voices). Default: barack-obama or ttsVoice */
+    voice?: string;
+    timeoutMs?: number;
   };
 }
 
@@ -297,9 +313,11 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
             ? "edge"
             : obj["ttsProvider"] === "kokoro"
               ? "kokoro"
-              : obj["ttsProvider"] === "openai"
-                ? "openai"
-                : null;
+              : obj["ttsProvider"] === "pocket-tts-remote"
+                ? "pocket-tts-remote"
+                : obj["ttsProvider"] === "openai"
+                  ? "openai"
+                  : null;
 
   const ttsVoiceVal = typeof obj["ttsVoice"] === "string" ? obj["ttsVoice"] : null;
   const ttsVoice = ttsVoiceVal ?? fallback.ttsVoice ?? DEFAULT_CONFIG.ttsVoice;
@@ -354,12 +372,14 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
       }
       return undefined;
     })(),
-    ttsProvider: (["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"].includes(obj["ttsProvider"] as string)
+    ttsProvider: (["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge", "pocket-tts-remote"].includes(
+      obj["ttsProvider"] as string,
+    )
       ? obj["ttsProvider"]
-      : ttsProviderRaw) as "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge",
+      : ttsProviderRaw) as "openai" | "elevenlabs" | "deepgram" | "polly" | "kokoro" | "edge" | "pocket-tts-remote",
     ttsVoice,
     ttsFallbackProviders: (() => {
-      const valid = ["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge"] as const;
+      const valid = ["openai", "elevenlabs", "deepgram", "polly", "kokoro", "edge", "pocket-tts-remote"] as const;
       const primary = (
         valid.includes(obj["ttsProvider"] as (typeof valid)[number]) ? obj["ttsProvider"] : ttsProviderRaw
       ) as (typeof valid)[number];
@@ -572,6 +592,23 @@ export function parseConfig(raw: unknown, mainConfig?: MainConfig): DiscordVoice
         timeoutMs:
           typeof e["timeoutMs"] === "number" && (e["timeoutMs"] as number) >= 0
             ? (e["timeoutMs"] as number)
+            : undefined,
+      };
+    })(),
+    pocketTtsRemote: (() => {
+      const pt = obj["pocketTtsRemote"] && typeof obj["pocketTtsRemote"] === "object"
+        ? (obj["pocketTtsRemote"] as Record<string, unknown>)
+        : null;
+      if (!pt || typeof pt["baseUrl"] !== "string" || !(pt["baseUrl"] as string).trim()) return undefined;
+      return {
+        baseUrl: (pt["baseUrl"] as string).trim().replace(/\/$/, ""),
+        voice:
+          typeof pt["voice"] === "string" && (pt["voice"] as string).trim()
+            ? (pt["voice"] as string).trim()
+            : undefined,
+        timeoutMs:
+          typeof pt["timeoutMs"] === "number" && (pt["timeoutMs"] as number) > 0
+            ? (pt["timeoutMs"] as number)
             : undefined,
       };
     })(),

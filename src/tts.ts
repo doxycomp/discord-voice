@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 import { EdgeTTS } from "node-edge-tts";
+import { WaveFile } from "wavefile";
 import type { DiscordVoiceConfig } from "./config.js";
 import { validateElevenLabsVoiceId, validateKokoroModel } from "./config.js";
 import { KokoroTTS } from "kokoro-js";
@@ -381,6 +382,69 @@ export class EdgeTTSProvider implements TTSProvider {
 }
 
 /**
+ * Pocket TTS Remote Provider
+ * Calls a Pocket TTS server (e.g. https://github.com/doxycomp/pocket-tts-server) over HTTP.
+ * Server exposes OpenAI-compatible /v1/audio/speech (returns WAV).
+ */
+export class PocketTTSRemoteProvider implements TTSProvider {
+  private baseUrl: string;
+  private voice: string;
+  private timeoutMs: number;
+
+  constructor(config: DiscordVoiceConfig) {
+    const c = config.pocketTtsRemote;
+    if (!c?.baseUrl?.trim()) {
+      throw new Error("pocketTtsRemote.baseUrl required for Pocket TTS Remote");
+    }
+    this.baseUrl = c.baseUrl.replace(/\/$/, "");
+    this.voice = (c.voice ?? config.ttsVoice ?? "barack-obama").trim() || "barack-obama";
+    this.timeoutMs = c.timeoutMs ?? 30_000;
+  }
+
+  async synthesize(text: string): Promise<TTSResult> {
+    const url = `${this.baseUrl}/v1/audio/speech`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: text,
+          voice: this.voice,
+          response_format: "wav",
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Pocket TTS Remote error: ${response.status} ${truncateError(error)}`);
+      }
+
+      const wavBuffer = Buffer.from(await response.arrayBuffer());
+      const wav = new WaveFile(wavBuffer);
+      // Standard WAV fmt chunk: sample rate at offset 24 (4 bytes LE)
+      const sampleRate = wavBuffer.length >= 28 ? wavBuffer.readUInt32LE(24) : 24000;
+      const samples = wav.getSamples(false, Int16Array);
+      const audioBuffer =
+        samples.byteOffset === 0 && samples.byteLength === samples.buffer.byteLength
+          ? Buffer.from(samples.buffer)
+          : Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
+
+      return {
+        audioBuffer,
+        format: "pcm",
+        sampleRate,
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+/**
  * Create TTS provider based on config
  */
 export function createTTSProvider(config: DiscordVoiceConfig): TTSProvider {
@@ -395,6 +459,8 @@ export function createTTSProvider(config: DiscordVoiceConfig): TTSProvider {
       return new EdgeTTSProvider(config);
     case "kokoro":
       return new KokoroTTSProvider(config);
+    case "pocket-tts-remote":
+      return new PocketTTSRemoteProvider(config);
     case "openai":
     default:
       return new OpenAITTS(config);

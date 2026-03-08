@@ -122,7 +122,7 @@ Add these to your bot's OAuth2 URL or configure in Discord Developer Portal.
 | `sttFallbackProvider`  | string            | `undefined`                           | Single fallback (legacy). Prefer `sttFallbackProviders`.                                                                                                                                      |
 | `sttFallbackProviders` | string[]          | `undefined`                           | Fallback STT when primary fails (quota, rate limit, Wyoming unreachable). E.g. `["local-whisper", "wyoming-whisper"]`.                                                                        |
 | `streamingSTT`         | boolean           | `true`                                | Use streaming STT (Deepgram only, ~1s faster)                                                                                                                                                 |
-| `ttsProvider`          | string            | `"openai"`                            | `"openai"`, `"elevenlabs"`, `"deepgram"`, `"polly"`, `"edge"`, or `"kokoro"`                                                                                                                  |
+| `ttsProvider`          | string            | `"openai"`                            | `"openai"`, `"elevenlabs"`, `"deepgram"`, `"polly"`, `"edge"`, `"kokoro"`, or `"pocket-tts-remote"` (Pocket TTS server on LAN)                                                                   |
 | `ttsVoice`             | string            | `"nova"`                              | Deprecated – use provider-specific: `openai.voice`, `elevenlabs.voiceId`, `kokoro.voice`                                                                                                      |
 | `vadSensitivity`       | string            | `"medium"`                            | `"low"`, `"medium"`, or `"high"`                                                                                                                                                              |
 | `bargeIn`              | boolean           | `true`                                | Stop speaking when user talks                                                                                                                                                                 |
@@ -278,6 +278,21 @@ No API key required. Uses Microsoft's online neural TTS via `node-edge-tts`. Def
 }
 ```
 
+#### Pocket TTS Remote
+
+Use a [Pocket TTS server](https://github.com/doxycomp/pocket-tts-server) on your LAN. The server exposes OpenAI-compatible `/v1/audio/speech` (returns WAV). Set `baseUrl` to the server URL (e.g. `http://192.168.1.10:8000`). Voice IDs come from the server’s `/v1/audio/voices`.
+
+```json5
+{
+  ttsProvider: "pocket-tts-remote",
+  pocketTtsRemote: {
+    baseUrl: "http://192.168.1.10:8000",
+    voice: "barack-obama",
+    timeoutMs: 30000,
+  },
+}
+```
+
 #### Kokoro (Local TTS) – Free
 
 No API key required. Runs locally on CPU. Use as primary or in `ttsFallbackProviders` when ElevenLabs/OpenAI hit quota limits. With `noEmojiHint` enabled (default), emojis are stripped from responses before TTS so Kokoro does not try to read them aloud.
@@ -348,7 +363,7 @@ Once registered with Discord, use these commands (prefix `/discord_voice` to avo
 - `/discord_voice status` - Show voice connection status, STT/TTS provider, model, think level, and available models
 - `/discord_voice reset-fallback` - Reset STT/TTS fallbacks; next request will try primary providers again
 - `/discord_voice set-stt <provider>` - Set STT provider (whisper, gpt4o-mini, deepgram, local-whisper, wyoming-whisper, etc.)
-- `/discord_voice set-tts <provider>` - Set TTS provider (openai, elevenlabs, deepgram, polly, kokoro, edge)
+- `/discord_voice set-tts <provider>` - Set TTS provider (openai, elevenlabs, deepgram, polly, kokoro, edge, pocket-tts-remote)
 - `/discord_voice set-model <model>` - Set LLM model (e.g. google-gemini-cli/gemini-3-fast-preview, xai/grok-4-1-fast-non-reasoning)
 - `/discord_voice set-think <level>` - Set thinking level (off, low, medium, high)
 
